@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: chat_mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - chat_network
+    environment:
+      MONGO_INITDB_DATABASE: chat_db
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: chat_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - chat_network
+
+  api:
+    build: .
+    container_name: chat_api
+    restart: unless-stopped
+    ports:
+      - "4242:4242"
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - chat_network
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=change-this-to-a-random-secret-key-in-production
+    volumes:
+      - ./main.py:/app/main.py
+
+networks:
+  chat_network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:

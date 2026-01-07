@@ -1,0 +1,28 @@
+# FastAPI and ASGI server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Async MongoDB driver
+motor==3.3.2
+pymongo==4.6.1
+
+# Redis async client
+redis==5.0.1
+
+# Data validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Authentication and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+
+PyJWT==2.8.0
+
+# Additional utilities
+python-multipart==0.0.6
+email-validator==2.1.0
+
+# For healthcheck in Docker
+requests==2.31.0
