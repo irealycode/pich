@@ -9,7 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Use Face ID to secure your account"
+      }
     },
     "android": {
       "adaptiveIcon": {

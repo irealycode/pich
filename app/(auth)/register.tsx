@@ -1,7 +1,8 @@
 import Toasty, { ToastyIN } from '@/components/ui/toast';
 import { ip, port } from '@/imports/overall';
-import axios from 'axios';
-import { Link } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios, { AxiosError } from 'axios';
+import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Dimensions, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -78,15 +79,21 @@ export default function RegisterScreen() {
     const req = {
         username,password
     }
-    try {
-      const res = await axios.post(`http://${ip}:${port}/auth/register`,req)
-      const data = res.data
-      console.log(data)
-      sendToast('success',"Register successful !")
-    } catch (error) {
-      console.error(error)
-      sendToast('error',"There has been some Network errors")
-    }
+      axios.post(`http://${ip}:${port}/auth/register`,req).then((res)=> {
+        const data = res.data
+        AsyncStorage.setItem('token',data.access_token)
+        AsyncStorage.setItem('user_id',data.user_id)
+        console.log(data)
+        router.replace('/(tabs)')
+        sendToast('success',"Register successful !")
+      }).catch((error : AxiosError)=>{
+        if (error.status === 400) {
+          sendToast('error',"Username already taken")
+          return
+        }
+        sendToast('error',"There has been some Network errors")
+      })
+      
     
   }
 

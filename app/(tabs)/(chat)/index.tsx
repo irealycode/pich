@@ -1,10 +1,16 @@
 import { BackIcon } from '@/assets/svgs/Back';
+import TypingAnimation from '@/components/ui/TypingDots';
+import { useSocket } from '@/components/ws/SocketContext';
+import { decrypt, encrypt } from '@/imports/crypto';
+import { ip, port } from '@/imports/overall';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useNavigation } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -18,11 +24,7 @@ import {
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-interface messageType {
-  id:number,
-  text:string,
-  by:'user'|'assistant'
-}
+
 
 interface TaskSQL {
   id : number,
@@ -42,53 +44,197 @@ interface Task {
   notif_id : string,
 }
 
+interface Message{
+  _id: string, 
+  chat_id: string,
+  content: string,
+  created_at: string,
+  user_id: string,
+  username?: string
+}
+
+interface TypingUser {
+  username: string
+}
+
 export default function ChatInterface() {
+  const { onMessage } = useSocket();
+  const {chat_id,key,name,description} = useLocalSearchParams<{ chat_id:string,key:string, name: string,description:string }>()
+  const token = useRef('')
+  const user_id = useRef('')
   const navigation = useNavigation();
   const db_ = useRef<SQLite.SQLiteDatabase | null>(null)
   const [tasks, setTasks] = useState<Task[]>([]);
   const [message, setMessage] = useState('');
   const msgTabY = useSharedValue(100)
   const topTabY = useSharedValue(0)
-  const messagesTest = [
-    {id:0,text:'Analyze tickets from last sprint',by:'user'},
-    {id:1,text:'Analyze tickets from last sprint',by:'assistant'},
-    {id:2,text:'Analyze tickets from last sprint',by:'user'},
-    {id:3,text:'Analyze tickets from last sprint',by:'assistant'},
-    {id:4,text:'Analyze tickets from last sprint',by:'user'}
-
-  ]
-  const [messages,setMessages] = useState<messageType[]>([])
+  const [messages,setMessages] = useState<Message[]>([])
   const [toggleChatPosition,setToggleChatPosition] = useState(false)
   const scrollViewRef = useRef<ScrollView | undefined>(undefined);
   const [contentHeight, setContentHeight] = useState(0);
-  
+  const [isTyping, setIsTyping] = useState(false);
+  const [userTyping, setUserTyping] = useState<TypingUser[]>([]);
+  const usersTyping = useRef<TypingUser[]>([]);
+  const typingTimeout = useRef<number | null>(null);
+  const isTypingRef = useRef(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      msgTabY.value = withTiming(0, { duration: 300 })
-      topTabY.value = withTiming(100, { duration: 300 })
-      scrollToBottomMessages()
-      return () => {
-      };
-    }, [contentHeight])
-  );
 
-  useEffect(()=>{
-    getTasks()
-  },[])
+    useFocusEffect(
+      useCallback(() => {
+        msgTabY.value = withTiming(0, { duration: 300 })
+        topTabY.value = withTiming(100, { duration: 300 })
+        scrollToBottomMessages()
+        
+      }, [contentHeight])
+    );
 
-  
-
-  const getTasks = async() =>{
-      const db = await SQLite.openDatabaseAsync('super_db');
-      db_.current = db;
-      const allRows : TaskSQL[] = await db.getAllAsync('SELECT * FROM tasks');
-      setTasks([])
-      allRows.forEach(e => {
-        setTasks(prev => [...prev,{title:e.title,date:e.date,priority:e.priority,id:e.id,completed:e.completed===1,notif_id:e.notif_id}])
+    useFocusEffect(
+      useCallback(() => {
+      AsyncStorage.getItem('token').then((t)=>{
+        if (t) {
+          token.current = t
+          getChat()
+        }
       })
-      console.log(allRows)
+      AsyncStorage.getItem('user_id').then((t)=>{
+        if (t) {
+          user_id.current = t
+        }
+      })
+      const unsubscribe = onMessage((msg) => {
+        console.log('Received:', msg);
+        if(msg.chat_id === chat_id){
+          if(msg.type === "typing_start"){
+            usersTyping.current = [...usersTyping.current,{username:msg.username}]
+            setUserTyping(usersTyping.current)
+          }else if(msg.type === "typing_stop"){
+            usersTyping.current = usersTyping.current.filter(u => u.username !== msg.username)
+            setUserTyping(usersTyping.current)
+          }else{
+            receiveMessage(msg)
+          }
+        }
+      });
+      return unsubscribe;
+      }, [chat_id,key,name])
+    );
+
+
+    const receiveMessage = async(msg : Message) => {
+      const decryptedMsg = decrypt(msg.content,key)
+      setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
     }
+    const parseAndDecryptMessages = async(msgs : Message[]) =>{
+      const msgsCopy : Message[] = []
+      msgs.forEach(async m => {
+        const content = await decrypt(m.content,key)
+        msgsCopy.push({...m,content})
+      });
+      return msgsCopy
+    }
+    
+    const getChat = async() =>{
+        try {
+          const anchor = await encrypt(chat_id,key)
+          const req = {
+            anchor,
+            limit: 50
+          }
+          const res = await axios.post(`http://${ip}:${port}/messages/${chat_id}`,req,{
+            headers:{
+              Authorization : `Bearer ${token.current}`
+            }
+          })
+          const data = res.data
+          console.log('CHAT:',data)
+          const parsedMessages = await parseAndDecryptMessages(data.messages)
+          setMessages(parsedMessages)
+        } catch (error) {
+          console.error(error)
+        }
+    }
+
+    const startTyping = () => {
+      if (!isTypingRef.current) {
+        isTypingRef.current = true;
+        sendTyping(true)
+      }
+
+      if (typingTimeout.current) {
+        clearTimeout(typingTimeout.current);
+      }
+    };
+
+    // const startTyping = async() => {
+    //   setIsTyping(true);
+    //   if (typingTimeout.current) {
+    //     clearTimeout(typingTimeout.current);
+    //   }
+    //   const res = await axios.get(`http://${ip}:${port}/messages/typing/on/${chat_id}`,{
+    //     headers:{
+    //       Authorization : `Bearer ${token.current}`
+    //     }
+    //   })
+
+    // };
+
+    const stopTyping = () => {
+      if (typingTimeout.current) {
+        clearTimeout(typingTimeout.current);
+      }
+
+      typingTimeout.current = setTimeout(() => {
+        if (isTypingRef.current) {
+          isTypingRef.current = false;
+          sendTyping(false);
+        }
+      }, 800);
+    };
+
+    
+
+    const sendTyping = async(typing : boolean) => {
+      if (typing) {
+        const res = await axios.get(`http://${ip}:${port}/messages/typing/on/${chat_id}`,{
+          headers:{
+            Authorization : `Bearer ${token.current}`
+          }
+        })
+        return
+      }
+       const res = await axios.get(`http://${ip}:${port}/messages/typing/off/${chat_id}`,{
+          headers:{
+            Authorization : `Bearer ${token.current}`
+          }
+        })
+    }
+
+    const sendMessage = async() =>{
+      if (message.trim().length === 0) {
+        return
+      }
+      try {
+        const msgEncrypted = await encrypt(message,key)
+        const req = {
+          "chat_id": chat_id,
+          "content": msgEncrypted,
+        }
+        const res = await axios.post(`http://${ip}:${port}/messages`,req,{
+          headers:{
+            Authorization : `Bearer ${token.current}`
+          }
+        })
+        const data = res.data
+        console.log(data)
+        setMessage('')
+        setMessages(prev=>[...prev,({...data,content:message})])
+        scrollToBottomMessages()
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+  
 
   const scrollToBottomMessages = () =>{
     scrollViewRef.current?.scrollTo({y:contentHeight,x:0, animated: true });
@@ -97,6 +243,7 @@ export default function ChatInterface() {
   const goBack = () =>{
     msgTabY.value = withTiming(100, { duration: 300 })
     topTabY.value = withTiming(0, { duration: 300 })
+    setMessages([])
     navigation.goBack()
   }
 
@@ -107,19 +254,11 @@ export default function ChatInterface() {
     transform: [{translateY:`${topTabY.value}%`}]
   }));
 
-  const getId = () =>{
-    return parseInt(`${Math.random()*1000000}`)
+  const chatDetails = () =>{
+    router.push({pathname:'/(tabs)/(chat)/chat_details',params:{name,chat_id,key}})
+    console.log('okok')
   }
-
-  const sendMessage = (msg:string) =>{
-    setMessage('')
-    setMessages(prev=>[...prev,{id:prev.length,text:msg,by:'user'}])
-    scrollToBottomMessages()
-  }
-
-  const convertMessages = (msgs : messageType[]) =>{
-    return msgs.map((m)=>({role:m.by,content:m.text}))
-  }
+  
 
   
 
@@ -127,7 +266,6 @@ export default function ChatInterface() {
     <SafeAreaView style={styles.container}>
       
 
-      {/* Header */}
       <Animated.View style={[topBarStyleAnim,{position:'absolute',top:-100,width:'100%',zIndex:90}]}  >
         <BlurView intensity={50} tint="dark" style={{paddingHorizontal:20,paddingVertical:10,paddingTop:50,width:'100%',borderBottomWidth:1,borderColor:'#ffffff31'}}>
           <View style={styles.headerContent}>
@@ -135,17 +273,15 @@ export default function ChatInterface() {
               <TouchableOpacity onPress={()=>goBack()} >
                 <BackIcon size={35} color='white' />
               </TouchableOpacity>
-              <View style={styles.headerText}>
-                <Text style={{fontFamily:'Agdasima',fontSize:30,color:'white'}}>SUPER</Text>
-              </View>
-
+              <TouchableOpacity onPress={()=>chatDetails()} style={styles.headerText}>
+                <Text style={{fontFamily:'Agdasima',fontSize:30,color:'white',marginTop:-5}}>{name}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </BlurView>
       </Animated.View>
 
 
-      {/* Chat Messages */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
@@ -158,11 +294,10 @@ export default function ChatInterface() {
           }}
           ref={scrollViewRef}
           style={{marginTop:30}}
-          contentContainerStyle={{paddingTop:20,paddingBottom:55,paddingHorizontal:20}}
+          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
           showsVerticalScrollIndicator={false}
           
         >
-          {/* Date Badge */}
           <View style={styles.dateBadgeContainer}>
             <BlurView intensity={40} tint="dark" style={styles.dateBadge}>
               <Text style={styles.dateBadgeText}>TODAY</Text>
@@ -171,87 +306,51 @@ export default function ChatInterface() {
 
           {
             messages.map((msg,i)=>{
-              if(msg.by === "user"){
+              // console.log(messages)
+              // messages.filter((ms)=>ms.user_id !== user_id.current)
+              const sameUserBelow = msg.user_id === messages[i + 1]?.user_id
+              const sameUserOnTop = msg.user_id === messages[i - 1]?.user_id
+              // const user_colors = stringToColor(msg.user_id)
+              if(msg.user_id === user_id.current){
                 return(
-                  <View key={msg.id} style={[styles.messageRow, styles.messageRowUser,{marginVertical:5}]}>
-                    <View style={styles.messageContentUser}>
+                  <View key={msg._id} style={[styles.messageRow,{marginVertical:2,justifyContent: 'flex-end'}]}>
+                    <View style={{maxWidth: '75%',gap: 0,alignItems: 'flex-end'}}>
                       {/* <Text style={styles.messageTimeUser}>You • 9:02 AM</Text> */}
                       <LinearGradient
-                        colors={['rgba(43, 108, 238, 0.9)', 'rgba(43, 108, 238, 0.7)']}
-                        style={styles.messageBubbleUser}
+                        colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
+                        style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomRightRadius:sameUserBelow?5:16,borderTopRightRadius:sameUserOnTop?5:16}}
                       >
-                        <Text style={styles.messageTextUser}>{msg.text}</Text>
+                        <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>{msg.content}</Text>
                       </LinearGradient>
                     </View>
                   </View>
                 )
               }
               return (
-                  <View key={msg.id} style={[styles.messageRow,{marginVertical:5}]}>
-                    <View style={{width:'80%',borderRadius:16,borderBottomLeftRadius:4,backgroundColor:'#1b1c25ff',overflow:'hidden',borderWidth:1,borderColor:"#ffffff31"}}>
+                  <View key={msg._id} style={[styles.messageRow,{marginVertical:2,position:'relative',marginBottom:!sameUserBelow?20:2}]}>
+                    {!sameUserBelow && <Text style={{position:'absolute',bottom:-15,left:0,color:'#999',fontSize:12,fontFamily:'courier',}} >{msg.username}</Text>}
+                    <View style={{maxWidth:'80%',}}>
                       {/* <Text style={styles.messageTime}>Super • 9:01 AM</Text> */}
-                      <View style={{padding:20}}>
-                        <Text style={styles.messageText}>
-                          {msg.text}
+                      <LinearGradient
+                        colors={['rgba(34, 149, 57, 0.9)', 'rgba(0, 186, 65, 0.88)']}
+                        style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:sameUserBelow?5:16,borderTopLeftRadius:sameUserOnTop?5:16}}
+                      >
+                        <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>
+                          {msg.content}
                         </Text>
-                      </View>
+                      </LinearGradient>
                     </View>
                   </View>
               )
             })
           }
-
-          
-
-          {/* User Message */}
-          
-
-          {/* AI Message with Tasks
-          <View style={styles.messageRow}>
-            <Image
-              source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBDUg8GtsnbvA6Hxe3FmLsvjPWWNCrWJV2mBbYZICJeqVloAxMPu7JLWS8SOs5rX0tcxaewnxAurRBO7Odg0O45a5M88DR2KFYmO88ieoO25uNwVhjaWlEQHJy7Oyr8hhpYQiahMmnTDN3Le45UPup_C5wjZS37gPD1EEFj7V2KhZ6qL3HaZKun0nbd7WI4emPpTXCfGIzLPmj3yqIg7-ICvOwow_UX6nvq_hxTO-R_IryMUrQQ_XvQ08foh6csxFzDqIYrgytjFBPo' }}
-              style={styles.messageAvatar}
-            />
-            <View style={styles.messageContent}>
-              <Text style={styles.messageTime}>Super • 9:03 AM</Text>
-              <BlurView intensity={40} tint="dark" style={styles.taskBubble}>
-                <Text style={styles.messageText}>
-                  Great choice. Here's a suggested breakdown for the <Text style={styles.highlight}>Design Review</Text>:
-                </Text>
-                
-                <View style={styles.taskList}>
-                  {tasks.map((task, index) => (
-                    <TouchableOpacity
-                      key={task.id}
-                      style={[styles.taskItem, index > 0 && styles.taskItemBorder]}
-                      onPress={() => toggleTask(task.id)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.checkbox}>
-                        {task.checked && (
-                          <View style={styles.checkboxChecked}>
-                            <Text style={styles.checkIcon}>✓</Text>
-                          </View>
-                        )}
-                        {!task.checked && <View style={styles.checkboxUnchecked} />}
-                      </View>
-                      <View style={styles.taskTextContainer}>
-                        <Text style={styles.taskTitle}>{task.title}</Text>
-                        <Text style={styles.taskSubtitle}>{task.subtitle}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity style={styles.addButton}>
-                  <Text style={styles.addButtonText}>Add to Task List</Text>
-                </TouchableOpacity>
-              </BlurView>
-            </View>
-          </View> */}
         </ScrollView>
 
         <Animated.View style={[msgBarStyleAnim,{position:toggleChatPosition?'fixed':'absolute',bottom:toggleChatPosition?0:-40,width:'100%'}]} >
+          {userTyping[0] && <View style={{position:'absolute',top:-27,display:'flex',flexDirection:'row',alignItems:'flex-end'}} >
+            <Text style={{fontFamily:'Agdasima',color:'white',left:20,fontSize:18,marginBottom:-1}} >{userTyping[0].username} typing</Text>
+            <TypingAnimation dotColor='#fff' dotSize={3} />
+          </View>}
           <BlurView intensity={40} tint="dark" style={[styles.footer]}>
             <View style={styles.inputContainer}>
               
@@ -259,20 +358,37 @@ export default function ChatInterface() {
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Message Super..."
+                  placeholder="Type Message..."
                   placeholderTextColor="rgba(255, 255, 255, 0.4)"
                   value={message}
-                  onChangeText={setMessage}
+                  onChangeText={(text)=>{startTyping();stopTyping();setMessage(text)}}
                   multiline
-                  onFocus={()=>setToggleChatPosition(true)}
-                  onBlur={()=>setToggleChatPosition(false)}
+                  onFocus={()=>{setToggleChatPosition(true)}}
+                  onBlur={() => {
+                    setToggleChatPosition(false)
+                    if (typingTimeout.current) {
+                      clearTimeout(typingTimeout.current);
+                    }
+
+                    if (isTypingRef.current) {
+                      isTypingRef.current = false;
+                      sendTyping(false)
+;
+                    }
+                  }}
                 />
                 
               </View>
 
-              <TouchableOpacity onPress={()=>sendMessage(message)} style={{display:'flex',alignItems:'center',justifyContent:'center',padding:10,borderRadius:50,backgroundColor:'#2b6cee'}}>
+              <TouchableOpacity onPress={()=>sendMessage()} style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
                 {/* <Text style={styles.sendIcon}>↑</Text> */}
-                <Image source={require('../../assets/images/send.svg')} style={{height:22,width:22}} />
+                <LinearGradient
+                    colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
+                    style={{padding:10,borderRadius:50}}
+                  >
+                        
+                  <Image source={require('../../../assets/images/send.svg')} style={{height:22,width:22}} />
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </BlurView>
@@ -414,11 +530,9 @@ const styles = StyleSheet.create({
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 12,
+    gap: 5,
   },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
+  
   messageAvatar: {
     width: 32,
     height: 32,
@@ -434,11 +548,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 4,
     overflow:'hidden'
   },
-  messageContentUser: {
-    maxWidth: '75%',
-    gap: 4,
-    alignItems: 'flex-end',
-  },
   messageTime: {
     color: 'rgba(255, 255, 255, 0.4)',
     fontSize: 10,
@@ -453,9 +562,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   messageBubbleUser: {
-    padding: 16,
-    borderRadius: 16,
-    borderBottomRightRadius: 4,
+    
     
   },
   messageText: {
@@ -463,11 +570,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     
-  },
-  messageTextUser: {
-    color: 'white',
-    fontSize: 15,
-    lineHeight: 22,
   },
   readReceipt: {
     color: 'rgba(255, 255, 255, 0.3)',

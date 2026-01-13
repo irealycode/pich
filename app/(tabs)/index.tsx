@@ -7,10 +7,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
 import * as Notifications from 'expo-notifications';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
-import { Key } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import jdenticon from "jdenticon/standalone";
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Keyboard,
@@ -27,7 +27,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-var CryptoJS = require("crypto-js");
+import { SvgXml } from 'react-native-svg';
 
 interface Task {
   id : number,
@@ -39,7 +39,7 @@ interface Task {
 }
 
 
-interface Chat {
+export interface Chat {
   id: string;
   name: string;
   descrption: string;
@@ -111,26 +111,46 @@ const ChatPich = () => {
     }));
     const [chatIK,setChatIK] = useState('')
     const [showCopy,setShowCopy] = useState(false)
-    
+    const token = useRef('')
+    const user_id = useRef('')
+
+
+    useFocusEffect(
+      useCallback(() => {
+        AsyncStorage.getItem('token').then((t)=>{
+          if (t) {
+            token.current = t
+            getChats()
+          }
+        })
+        AsyncStorage.getItem('user_id').then((t)=>{
+          if (t) {
+            user_id.current = t
+          }
+        })
+        return () => {
+        };
+      }, [])
+    );
 
     useEffect(() => {
-    const configureNotificationsAsync = async () => {
-      const { granted } = await Notifications.requestPermissionsAsync();
-      if (!granted) {
-        return console.warn("⚠️ Notification Permissions not granted!");
-      }
+    // const configureNotificationsAsync = async () => {
+    //   const { granted } = await Notifications.requestPermissionsAsync();
+    //   if (!granted) {
+    //     return console.warn("⚠️ Notification Permissions not granted!");
+    //   }
 
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldPlaySound: true,
-          shouldSetBadge: false,
-          shouldShowBanner: true,
-          shouldShowList: true,
-        }),
-      });
-    };
-    configureNotificationsAsync();
-    getChats()
+    //   Notifications.setNotificationHandler({
+    //     handleNotification: async () => ({
+    //       shouldPlaySound: true,
+    //       shouldSetBadge: false,
+    //       shouldShowBanner: true,
+    //       shouldShowList: true,
+    //     }),
+    //   });
+    // };
+    // configureNotificationsAsync();
+    
   }, []);
 
   
@@ -144,6 +164,14 @@ const ChatPich = () => {
       setJoinedChats(prev => [...prev,{...e,id:e.chat_id}])
     })
     console.log(allRows)
+    // const res = await axios.get(`http://${ip}:${port}/chats`,{
+    //   headers:{
+    //     Authorization : `Bearer ${token.current}`
+    //   }
+    // })
+    // const data = res.data
+    // setJoinedChats(data.map((c : {_id : string, name : string, })=> ({})))
+    // console.log(data)
   }
 
     const sendNotification = (title:string, body:string) => {
@@ -180,47 +208,11 @@ const ChatPich = () => {
       await Notifications.cancelScheduledNotificationAsync(notificationId);
     }
 
-    const toggleTask = (id : number) => {
-      setTasks(tasks.map(task => 
-        task.id === id ? { ...task, completed: !task.completed } : task
-      ));
-    };
 
     const formatDateToString = (date : Date) : `${number}/${number}/${number}` => {
       return `${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`
     }
     const today = formatDateToString(new Date())
-    const todayTasks = tasks.filter(t => t.date === today);
-    const upcomingTasks = tasks.filter(t => t.date !== today);
-    
-
-    const getPriorityStyle = (priority : string ) => {
-      switch (priority) {
-        case 'High':
-          return { bg: '#7f1d1d', text: '#fca5a5', border: '#991b1b' };
-        case 'Medium':
-          return { bg: '#713f12', text: '#fcd34d', border: '#92400e' };
-        case 'Low':
-          return { bg: '#1e3a8a', text: '#93c5fd', border: '#1e40af' };
-        default:
-          return { bg: '#374151', text: '#9ca3af', border: '#4b5563' };
-      }
-    };
-
-    const showDeleteTask = (id : number) =>{
-      setTaskToDelete(id)
-      deleteTaskTop.value = withTiming(-60, { duration: 150 })
-      deleteTaskOpacity.value = withTiming(1, { duration: 150 })
-    }
-
-    const hideDeleteTask = async() => {
-      deleteTaskTop.value = withTiming(0, { duration: 150 })
-      deleteTaskOpacity.value = withTiming(0, { duration: 150 })
-      sleep(150)
-      setTaskToDelete(0)
-    }
-
-    
 
     function formatDate(date: Date): string {
       const day = date.toLocaleDateString("en-US", { weekday: "long" });
@@ -272,7 +264,7 @@ const ChatPich = () => {
       const id = Date.now(); // you would get this from the db later
       const key = randomKey()
       // const k = "p!Ch-JcXPfNVA@@x-FEI#xKE9KL-%&t6mLjsQ5-yN6T$J0&%Z-Prr9#IkDR"
-      setChatIK(`${key}`)
+      
       // console.log(key)
       // const c = await encrypt('hello',key)
       // const d = await decrypt(c,key)
@@ -283,14 +275,14 @@ const ChatPich = () => {
       }
 
       try {
-        const token = await AsyncStorage.getItem('token')
-        if(!token) {
+        
+        if(token.current === '') {
           await AsyncStorage.clear()
           router.replace('/(auth)')
         }
         const res = await axios.post(`http://${ip}:${port}/chats`,req,{
           headers:{
-            Authorization : `Bearer ${token}`
+            Authorization : `Bearer ${token.current}`
           }
         })
         const data = res.data
@@ -302,9 +294,11 @@ const ChatPich = () => {
         console.log(req1)
         const res1 = await axios.post(`http://${ip}:${port}/chats/anchor`,req1,{
           headers:{
-            Authorization : `Bearer ${token}`
+            Authorization : `Bearer ${token.current}`
           }
         })
+        const idkey =  btoa(`${data._id}-${key}`)
+        setChatIK(idkey)
         console.log(res1.data)
         const chat : Chat = {
           id : data._id,
@@ -332,31 +326,9 @@ const ChatPich = () => {
     }
 
     const addChatSQL = async(chat : Chat) => {
-      await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id) values (?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption])
+      await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id,user_id) values (?,?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption,user_id.current])
     }
     
-
-    const deleteTask = async(id : number, notif_id : string) =>{
-      await db_.current?.runAsync('DELETE FROM tasks WHERE id = ?',id)
-      await cancelTaskReminder(notif_id)
-      setTasks(prev => prev.filter((p)=>p.id!==id))
-      hideDeleteTask()
-    }
-
-
-    const completeTask = async(id : number,completed : boolean, notif_id : string) =>{
-      await db_.current?.runAsync('UPDATE tasks SET completed = ? WHERE id = ?',!completed,id)
-      
-      setTasks(tasks.map(task => 
-        task.id === id ? { ...task, completed: !completed } : task
-      ));
-      if (!completed) {
-        await cancelTaskReminder(notif_id)
-        await sendNotification("Good SHIT ✅✅✅","typ shi 🔥🔥🔥")
-      }
-    }
-
-    const priorityColors = getPriorityStyle(priorityChosen);
 
     return (
       <SafeAreaView style={styles.container}>
@@ -372,7 +344,7 @@ const ChatPich = () => {
               >
           <ScrollView style={{position:'fixed',top:-45,minHeight:screen.height}} contentContainerStyle={{minHeight:screen.height,paddingTop:40}}  showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
-              <TouchableOpacity onPress={()=>{}} style={styles.headerLeft}>
+              <TouchableOpacity onPress={()=>{AsyncStorage.clear();router.replace('/(auth)')}} style={styles.headerLeft}>
                 <Text style={{fontFamily:'courier',fontSize:30,color:'white',margin:0}}>pich</Text>
               </TouchableOpacity>
             </View>
@@ -382,9 +354,9 @@ const ChatPich = () => {
                 <Text style={styles.greetingText}>
                   Chats
                 </Text>
-                <View style={[styles.sectionBadge,{marginLeft:10}]}>
+                <TouchableOpacity onPress={()=>requestAddTask()} style={[styles.sectionBadge,{marginLeft:10}]}>
                   <Text style={styles.sectionBadgeText}>{joinedChats.length}</Text>
-                </View>
+                </TouchableOpacity>
               </View>
 
               <Text style={styles.dateText}>{formatDate(new Date())}</Text>
@@ -408,17 +380,20 @@ const ChatPich = () => {
             </View> */}
 
             <View style={styles.chatsContainer}>
-                {joinedChats.map((chat: Chat) => (
-                <View key={chat.id} style={styles.chatCard}>
-                    <View style={styles.chatIcon}>
-                    <Key size={24} color="#fff" />
+                {joinedChats.map((chat: Chat) => {
+                  const iconSvg = jdenticon.toSvg(chat.id.slice(16),200)
+                  const size = 50
+                  return(
+                <TouchableOpacity onPress={()=>router.push({pathname:'/(tabs)/(chat)',params:{chat_id:chat.id,key:chat.key,name:chat.name,description:chat.descrption}})} key={chat.id} style={styles.chatCard}>
+                    <View style={{width:size,height:size,marginRight:10}}>
+                      <SvgXml xml={iconSvg} width={size} height={size} />
                     </View>
                     <View style={styles.chatInfo}>
-                    <Text style={styles.chatName}>{chat.name}</Text>
-                    <Text style={styles.chatKey}>last message</Text>
+                      <Text style={styles.chatName}>{chat.name}</Text>
+                      <Text style={styles.chatKey}>last message</Text>
                     </View>
-                </View>
-                ))}
+                </TouchableOpacity>
+                )})}
             </View>
 
             
@@ -842,10 +817,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   chatName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
     color: 'white',
     marginBottom: 4,
+    fontFamily:'Agdasima'
   },
   chatKey: {
     fontSize: 14,

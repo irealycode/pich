@@ -1,3 +1,4 @@
+import { LogoIcon } from '@/assets/svgs/Logo';
 import Toasty, { ToastyIN } from '@/components/ui/toast';
 import { ip, port } from '@/imports/overall';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -5,7 +6,7 @@ import axios from 'axios';
 import { Link, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Dimensions, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 const screen = Dimensions.get("screen")
 
@@ -13,6 +14,11 @@ export default function LoginScreen() {
   const [username,setUsername] = useState('')
   const [password,setPassword] = useState('')
   const [toast,setToast] = useState<ToastyIN | null>(null)
+  const [loaded,setLoaded] = useState(false)
+  const rootOpacity = useSharedValue(0)
+  const animatedStyle = useAnimatedStyle(()=>({
+    opacity:rootOpacity.value
+  }))
 
   useEffect(()=>{
     checkToken()
@@ -22,7 +28,10 @@ export default function LoginScreen() {
     const token = await AsyncStorage.getItem('token')
     if (token) {
       router.replace('/(tabs)')
+      return
     }
+    setLoaded(true)
+    rootOpacity.value = withTiming(1,{ duration:300 })
   }
 
   const login = async() =>{
@@ -36,6 +45,8 @@ export default function LoginScreen() {
       console.log(data)
       sendToast('success',"Login successful !")
       AsyncStorage.setItem('token',data.access_token)
+      AsyncStorage.setItem('user_id',data.user_id)
+      console.log(data)
       router.replace('/(tabs)')
     } catch (error) {
       console.error(error)
@@ -50,8 +61,15 @@ export default function LoginScreen() {
     },5300)
   }
 
+  if (!loaded) {
+    return(
+      <View style={{flex:1,backgroundColor:'#101622',display:'flex',alignItems:'center',justifyContent:'center'}} >
+        <LogoIcon size={80} color='white' />
+      </View>
+    )
+  }
   return (
-    <SafeAreaView style={styles.container1}>
+    <Animated.View style={[styles.container1,animatedStyle]}>
       {toast && <Toasty type={toast.type} message={toast.message} />}
       <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -76,7 +94,7 @@ export default function LoginScreen() {
         
 
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Animated.View>
   );
 }
 

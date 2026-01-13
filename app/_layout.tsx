@@ -21,7 +21,7 @@ export default function RootLayout() {
 
   const loadSQLite = async() =>{
     const db = await SQLite.openDatabaseAsync('super_db');
-    // await db.execAsync('DROP TABLE tasks;');
+    // await db.execAsync('DROP TABLE chats;');
     await db.execAsync(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS chats (
@@ -31,7 +31,8 @@ export default function RootLayout() {
       chat_id TEXT NOT NULL,
       description TEXT,
       key TEXT,
-      notif_id TEXT
+      notif_id TEXT,
+      user_id TEXT
     );
     `);
     // CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY NOT NULL, chat_id INTEGER ,  TEXT NOT NULL, date TEXT, name TEXT, key TEXT, notif_id TEXT);

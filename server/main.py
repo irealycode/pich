@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 from redis import asyncio as aioredis
 
 # Configuration
@@ -19,7 +20,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 365  # 1 year
-
+SERVER_ID = "xx1"
 # Initialize FastAPI
 app = FastAPI(title="Chat API")
 
@@ -59,6 +60,7 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user_id: str
 
 class ChatCreate(BaseModel):
     name: str
@@ -68,12 +70,19 @@ class ChatAnchor(BaseModel):
     anchor: str
     chat_id: str
 
+class ChatAnchorJoin(BaseModel):
+    anchor: str
+
 class MessageCreate(BaseModel):
     chat_id: str
     content: str
 
 class UserBlock(BaseModel):
     user_id: str
+
+class MessagesChatParams(BaseModel):
+    anchor:str
+    limit:int
 
 # Startup and Shutdown
 @app.on_event("startup")
@@ -138,7 +147,7 @@ async def register(user_data: UserCreate):
     result = await db.users.insert_one(user)
     
     access_token = create_access_token({"sub": str(result.inserted_id)})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer","user_id":str(result.inserted_id)}
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
@@ -147,7 +156,8 @@ async def login(user_data: UserLogin):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     access_token = create_access_token({"sub": str(user["_id"])})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer","user_id":str(user['_id'])}
+
 
 # Chat
 @app.post("/chats")
@@ -158,7 +168,8 @@ async def create_chat(chat_data: ChatCreate, current_user: dict = Depends(get_cu
         "admin_id": str(current_user["_id"]),
         "blocked_users": [],
         "created_at": datetime.utcnow(),
-        "anchor":None
+        "anchor":None,
+        "joined_users":[str(current_user["_id"])]
     }
     result = await db.chats.insert_one(chat)
     
@@ -174,22 +185,40 @@ async def chat_anchor(chatAnchor: ChatAnchor, current_user: dict = Depends(get_c
         return 'Anchor installed'
     raise HTTPException(status_code=404, detail="Failed to find chat")
 
+@app.post("/chats/join")
+async def chat_anchor(chatAnchor: ChatAnchorJoin, current_user: dict = Depends(get_current_user)):
+    
+    result = await db.chats.find_one_and_update({'anchor':chatAnchor.anchor},{"$addToSet":{"joined_users":str(current_user["_id"])}},return_document=ReturnDocument.AFTER)
+
+    if result:
+        result["_id"] = str(result["_id"])
+        return result
+    raise HTTPException(status_code=404, detail="Failed to find chat")
+
 @app.get("/chats")
 async def get_chats(current_user: dict = Depends(get_current_user)):
     chats = []
-    async for chat in db.chats.find().sort("created_at", -1):
+    async for chat in db.chats.find({'joined_users':str(current_user['_id'])}).sort("created_at", -1):
         chat["_id"] = str(chat["_id"])
         chats.append(chat)
     return chats
 
 @app.get("/chats/{chat_id}")
 async def get_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
-    chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    chat = await db.chats.find_one({"_id": ObjectId(chat_id),'joined_users':str(current_user['_id'])})
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+    users = []
+    for u in chat["joined_users"]:
+        print("user : ",u)
+        user = await db.users.find_one({"_id":ObjectId(u)})
+        users.append({"username":user["username"],"id":u})
     
+    chat["joined_users"] = users
     chat["_id"] = str(chat["_id"])
     return chat
+
+
 
 @app.post("/chats/{chat_id}/block")
 async def block_user(chat_id: str, user_data: UserBlock, current_user: dict = Depends(get_current_user)):
@@ -237,56 +266,96 @@ async def send_message(msg_data: MessageCreate, current_user: dict = Depends(get
         "user_id": user_id,
         "username": current_user["username"],
         "content": msg_data.content,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        "type":"message"
     }
     result = await db.messages.insert_one(message)
     
     message["_id"] = str(result.inserted_id)
     message["created_at"] = message["created_at"].isoformat()
-    
-    # Publish to Redis for real-time delivery
-    await redis_client.publish(
-        f"chat:{msg_data.chat_id}",
-        json.dumps(message)
-    )
+
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
     
     return message
 
-@app.get("/messages/{chat_id}")
-async def get_messages(chat_id: str, limit: int = 50, current_user: dict = Depends(get_current_user)):
+@app.get("/messages/typing/on/{chat_id}")
+async def get_typing(chat_id: str, current_user: dict = Depends(get_current_user)):
     chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    message = {
+        "chat_id": chat_id,
+        "user_id": str(current_user["_id"]),
+        "username": current_user["username"],
+        "type": "typing_start"
+    }
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+
+    return "Typing sent"
+
+@app.get("/messages/typing/off/{chat_id}")
+async def get_typing(chat_id: str, current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    message = {
+        "chat_id": chat_id,
+        "user_id": str(current_user["_id"]),
+        "username": current_user["username"],
+        "type": "typing_stop"
+    }
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+
+    return "Typing sent"
+
+@app.post("/messages/{chat_id}")
+async def get_messages(chat_id: str, params: MessagesChatParams, current_user: dict = Depends(get_current_user)):
+    print(chat_id,params.anchor,params.limit)
+    chat = await db.chats.find_one({"_id":ObjectId(chat_id),"anchor": params.anchor})
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
     messages = []
-    async for msg in db.messages.find({"chat_id": chat_id}).sort("created_at", -1).limit(limit):
+    async for msg in db.messages.find({"chat_id": str(chat['_id'])}).sort("created_at", -1).limit(params.limit):
         msg["_id"] = str(msg["_id"])
         msg["created_at"] = msg["created_at"].isoformat()
         messages.append(msg)
     
-    return list(reversed(messages))
+    chat['_id'] = str(chat['_id'])
+    return {'chat':chat,'messages':list(reversed(messages))}
 
 # WebSocket for real-time chat
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict = {}
 
-    async def connect(self, websocket: WebSocket, chat_id: str, user_id: str):
+    async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()
-        if chat_id not in self.active_connections:
-            self.active_connections[chat_id] = {}
-        self.active_connections[chat_id][user_id] = websocket
+        self.active_connections[user_id] = websocket
 
-    def disconnect(self, chat_id: str, user_id: str):
-        if chat_id in self.active_connections:
-            self.active_connections[chat_id].pop(user_id, None)
-            if not self.active_connections[chat_id]:
-                del self.active_connections[chat_id]
+    def disconnect(self, user_id: str):
+        del self.active_connections[user_id]
 
 manager = ConnectionManager()
 
-@app.websocket("/ws/{chat_id}")
-async def websocket_endpoint(websocket: WebSocket, chat_id: str, token: str):
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket,  token: str):
+    #am only doing this user oriented subscription because am using one
+    #MUST CHANGE on scale
     try:
         # Verify token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -300,33 +369,21 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str, token: str):
             await websocket.close(code=1008)
             return
         
-        # Check if user is blocked
-        chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
-        if not chat:
-            await websocket.close(code=1008)
-            return
+        await manager.connect(websocket, user_id)
         
-        if user_id in chat.get("blocked_users", []):
-            await websocket.close(code=1008)
-            return
-        
-        await manager.connect(websocket, chat_id, user_id)
-        
-        # Subscribe to Redis channel
         pubsub = redis_client.pubsub()
-        await pubsub.subscribe(f"chat:{chat_id}")
+        await pubsub.subscribe(f"user:{user_id}")
         
         try:
             while True:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message["type"] == "message":
                     data = json.loads(message["data"])
-                    # Don't send message back to sender
                     if data["user_id"] != user_id:
                         await websocket.send_json(data)
         except WebSocketDisconnect:
-            manager.disconnect(chat_id, user_id)
-            await pubsub.unsubscribe(f"chat:{chat_id}")
+            manager.disconnect(user_id)
+            await pubsub.unsubscribe(f"user:{user_id}")
             await pubsub.close()
     except Exception as e:
         print(f"WebSocket error: {e}")
