@@ -19,6 +19,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -86,7 +87,7 @@ export default function ChatInterface() {
   const [messages,setMessages] = useState<Message[]>([])
   const [messageToReply,setMessageToReply] = useState<Message | null>(null)
   const [toggleChatPosition,setToggleChatPosition] = useState(false)
-  const scrollViewRef = useRef<ScrollView | undefined>(undefined);
+  const scrollViewRef = useRef<any | undefined>(undefined);
   const [contentHeight, setContentHeight] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [userTyping, setUserTyping] = useState<TypingUser[]>([]);
@@ -100,6 +101,8 @@ export default function ChatInterface() {
   const replyComponentsStyle = useAnimatedStyle(()=>({
     opacity:replyPaddingTop.value/75
   }))
+  const [messageBubbleSelected, setMessageBubbleSelected] = useState<Message | null>(null);
+  
 
     useFocusEffect(
       useCallback(() => {
@@ -302,6 +305,7 @@ export default function ChatInterface() {
   }
   
   const onReply = (message : Message) =>{
+    setMessageBubbleSelected(null)
     setMessageToReply(message)
     setTimeout(()=>{
       replyPaddingTop.value = withTiming(75,{ duration : 300 })
@@ -309,7 +313,7 @@ export default function ChatInterface() {
   }
 
   const onLike = async(message : Message) =>{
-    
+    setMessageBubbleSelected(null)
     if(!message.likes || !message.likes.includes(user_id.current)){
       await axios.get(`http://${ip}:${port}/messages/like/${chat_id}/${message._id}`,{
           headers:{
@@ -322,6 +326,7 @@ export default function ChatInterface() {
   }
 
   const onUnLike = async(message : Message) =>{
+    setMessageBubbleSelected(null)
     if(message.likes?.includes(user_id.current)){
       await axios.get(`http://${ip}:${port}/messages/unlike/${chat_id}/${message._id}`,{
         headers:{
@@ -330,13 +335,17 @@ export default function ChatInterface() {
       })
       setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?.filter((l)=>l !== user_id.current)}):m))
     }
-    
-    
+  }
+
+  const onLongPress = async(message : Message) =>{
+    console.log('long press')
+    setMessageBubbleSelected(message)
   }
   
 
   return (
     <SafeAreaView style={styles.container}>
+      
       
 
       <Animated.View style={[topBarStyleAnim,{position:'absolute',top:-100,width:'100%',zIndex:90}]}  >
@@ -367,6 +376,7 @@ export default function ChatInterface() {
           }}
           ref={scrollViewRef}
           style={{marginTop:30}}
+          scrollEnabled={!messageBubbleSelected}
           contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
           showsVerticalScrollIndicator={false}
           
@@ -377,16 +387,33 @@ export default function ChatInterface() {
             </BlurView>
           </View>
 
+          {messageBubbleSelected && <Pressable onPress={()=>setMessageBubbleSelected(null)} style={{position:'absolute',bottom:0,left:0,width:screen.width,height:contentHeight,zIndex:2}} >
+            <BlurView intensity={40} tint="dark" style={{width:'100%',height:'100%'}}>
+
+            </BlurView>
+          </Pressable>}
+
           {
             messages.map((msg,i)=>{
-              // console.log(messages)
-              // messages.filter((ms)=>ms.user_id !== user_id.current)
               const sameUserBelow = msg.user_id === messages[i + 1]?.user_id
               const sameUserOnTop = msg.user_id === messages[i - 1]?.user_id
               const bySender = msg.user_id === user_id.current
+              const isSelected = messageBubbleSelected?messageBubbleSelected._id === msg._id:false
               // const user_colors = stringToColor(msg.user_id)
               return(
-                <MessageBubble key={msg._id} user_id={user_id.current} message={msg} onReply={onReply} onLike={onLike} onUnLike={onUnLike} sameUserBelow={sameUserBelow} sameUserOnTop={sameUserOnTop} bySender={bySender}  />
+                <MessageBubble key={msg._id} 
+                  // zIndex={isSelected?3:1}
+                  isSelected={isSelected}
+                  user_id={user_id.current} 
+                  message={msg} 
+                  sameUserBelow={sameUserBelow} 
+                  sameUserOnTop={sameUserOnTop} 
+                  bySender={bySender}
+                  onLongPress={onLongPress} 
+                  onReply={onReply} 
+                  onLike={onLike} 
+                  onUnLike={onUnLike} 
+                />
               )
             })
           }
@@ -419,7 +446,7 @@ export default function ChatInterface() {
                 <ReplyLineIcon style={{position:'absolute',left:-45,bottom:-15}} size={50} color="#4e739068" />
                 <MessageBubbleDead message={messageToReply} sameUserOnTop={false} sameUserBelow={false} bySender={messageToReply.user_id === user_id.current} />
                 <TouchableOpacity style={{position:'absolute',right:-40,bottom:0}} onPress={()=>removeReply()} >
-                  <CloseIcon size={40} color="#3e4952" />
+                  <CloseIcon size={40} color="#41627c" />
                 </TouchableOpacity>
               </Animated.View>}
               

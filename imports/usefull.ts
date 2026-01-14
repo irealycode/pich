@@ -119,3 +119,45 @@ function hslToHex(h: number, s: number, l: number): string {
       .join("")
   );
 }
+
+
+export function formatRelativeDate(input: Date | string | number): string {
+  const date = new Date(input);
+  const now = new Date();
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const formatTime = (d: Date) =>
+    d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (isSameDay(date, now)) {
+    return formatTime(date);
+  }
+
+  if (diffDays <= 1) {
+    return `Yesterday at ${formatTime(date)}`;
+  }
+
+  if (diffDays < 7) {
+    return `${diffDays} days ago at ${formatTime(date)}`;
+  }
+
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 4) {
+    return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''} ago at ${formatTime(date)}`;
+  }
+
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) {
+    return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago at ${formatTime(date)}`;
+  }
+
+  const diffYears = Math.floor(diffDays / 365);
+  return `${diffYears} year${diffYears > 1 ? 's' : ''} ago at ${formatTime(date)}`;
+}
