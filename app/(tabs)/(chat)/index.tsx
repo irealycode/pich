@@ -1,4 +1,8 @@
 import { BackIcon } from '@/assets/svgs/Back';
+import { CloseIcon } from '@/assets/svgs/Close';
+import { ReplyLineIcon } from '@/assets/svgs/ReplyLine';
+import MessageBubble from '@/components/ui/MessageBubble';
+import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
 import { decrypt, encrypt } from '@/imports/crypto';
@@ -12,6 +16,7 @@ import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'exp
 import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useRef, useState } from 'react';
 import {
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -44,18 +49,28 @@ interface Task {
   notif_id : string,
 }
 
-interface Message{
+interface Reply {
+  _id: string,
+  content: string,
+  user_id: string,
+  username: string
+}
+
+export interface Message{
   _id: string, 
   chat_id: string,
   content: string,
   created_at: string,
   user_id: string,
-  username?: string
+  username?: string,
+  reply?: Reply | null,
+  likes?: string[]
 }
 
 interface TypingUser {
   username: string
 }
+const screen = Dimensions.get("screen")
 
 export default function ChatInterface() {
   const { onMessage } = useSocket();
@@ -69,6 +84,7 @@ export default function ChatInterface() {
   const msgTabY = useSharedValue(100)
   const topTabY = useSharedValue(0)
   const [messages,setMessages] = useState<Message[]>([])
+  const [messageToReply,setMessageToReply] = useState<Message | null>(null)
   const [toggleChatPosition,setToggleChatPosition] = useState(false)
   const scrollViewRef = useRef<ScrollView | undefined>(undefined);
   const [contentHeight, setContentHeight] = useState(0);
@@ -77,7 +93,13 @@ export default function ChatInterface() {
   const usersTyping = useRef<TypingUser[]>([]);
   const typingTimeout = useRef<number | null>(null);
   const isTypingRef = useRef(false);
-
+  const replyPaddingTop = useSharedValue(0)
+  const replyStyle = useAnimatedStyle(()=>({
+    paddingTop:replyPaddingTop.value
+  }))
+  const replyComponentsStyle = useAnimatedStyle(()=>({
+    opacity:replyPaddingTop.value/75
+  }))
 
     useFocusEffect(
       useCallback(() => {
@@ -110,8 +132,12 @@ export default function ChatInterface() {
           }else if(msg.type === "typing_stop"){
             usersTyping.current = usersTyping.current.filter(u => u.username !== msg.username)
             setUserTyping(usersTyping.current)
-          }else{
+          }else if(msg.type === "message"){
             receiveMessage(msg)
+          }else if(msg.type === "like"){
+            setMessages(prev => prev.map((m)=>m._id === msg.message_id?({...m,likes:m.likes?[...m.likes,msg.user_id]:[msg.user_id]}):m))
+          }else if(msg.type === "unlike"){
+            setMessages(prev => prev.map((m)=>m._id === msg.message_id?({...m,likes:m.likes?.filter((l)=>l !== msg.user_id)}):m))
           }
         }
       });
@@ -146,7 +172,6 @@ export default function ChatInterface() {
             }
           })
           const data = res.data
-          console.log('CHAT:',data)
           const parsedMessages = await parseAndDecryptMessages(data.messages)
           setMessages(parsedMessages)
         } catch (error) {
@@ -215,9 +240,20 @@ export default function ChatInterface() {
       }
       try {
         const msgEncrypted = await encrypt(message,key)
-        const req = {
+        let reply = null
+        if (messageToReply) {
+          reply = {
+            _id : messageToReply._id,
+            content : messageToReply.content,
+            user_id : messageToReply.user_id,
+            username: messageToReply.username
+          }
+          removeReply()
+        }
+        let req = {
           "chat_id": chat_id,
           "content": msgEncrypted,
+          "reply": reply
         }
         const res = await axios.post(`http://${ip}:${port}/messages`,req,{
           headers:{
@@ -248,7 +284,7 @@ export default function ChatInterface() {
   }
 
   const msgBarStyleAnim = useAnimatedStyle(() => ({
-    transform: [{translateY:`${msgTabY.value}%`}]
+    transform: [{translateY:`${msgTabY.value}%`}],
   }));
   const topBarStyleAnim = useAnimatedStyle(() => ({
     transform: [{translateY:`${topTabY.value}%`}]
@@ -256,10 +292,47 @@ export default function ChatInterface() {
 
   const chatDetails = () =>{
     router.push({pathname:'/(tabs)/(chat)/chat_details',params:{name,chat_id,key}})
-    console.log('okok')
+  }
+
+  const removeReply = () => {
+    replyPaddingTop.value = withTiming(0,{ duration : 300 })
+    setTimeout(()=>{
+      setMessageToReply(null)
+    },300)
   }
   
+  const onReply = (message : Message) =>{
+    setMessageToReply(message)
+    setTimeout(()=>{
+      replyPaddingTop.value = withTiming(75,{ duration : 300 })
+    },300)
+  }
 
+  const onLike = async(message : Message) =>{
+    
+    if(!message.likes || !message.likes.includes(user_id.current)){
+      await axios.get(`http://${ip}:${port}/messages/like/${chat_id}/${message._id}`,{
+          headers:{
+            Authorization : `Bearer ${token.current}`
+          }
+      })
+      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?[...m.likes,user_id.current]:[user_id.current]}):m))
+    }
+    
+  }
+
+  const onUnLike = async(message : Message) =>{
+    if(message.likes?.includes(user_id.current)){
+      await axios.get(`http://${ip}:${port}/messages/unlike/${chat_id}/${message._id}`,{
+        headers:{
+          Authorization : `Bearer ${token.current}`
+        }
+      })
+      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?.filter((l)=>l !== user_id.current)}):m))
+    }
+    
+    
+  }
   
 
   return (
@@ -310,40 +383,28 @@ export default function ChatInterface() {
               // messages.filter((ms)=>ms.user_id !== user_id.current)
               const sameUserBelow = msg.user_id === messages[i + 1]?.user_id
               const sameUserOnTop = msg.user_id === messages[i - 1]?.user_id
+              const bySender = msg.user_id === user_id.current
               // const user_colors = stringToColor(msg.user_id)
-              if(msg.user_id === user_id.current){
-                return(
-                  <View key={msg._id} style={[styles.messageRow,{marginVertical:2,justifyContent: 'flex-end'}]}>
-                    <View style={{maxWidth: '75%',gap: 0,alignItems: 'flex-end'}}>
-                      {/* <Text style={styles.messageTimeUser}>You • 9:02 AM</Text> */}
-                      <LinearGradient
-                        colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
-                        style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomRightRadius:sameUserBelow?5:16,borderTopRightRadius:sameUserOnTop?5:16}}
-                      >
-                        <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>{msg.content}</Text>
-                      </LinearGradient>
-                    </View>
-                  </View>
-                )
-              }
-              return (
-                  <View key={msg._id} style={[styles.messageRow,{marginVertical:2,position:'relative',marginBottom:!sameUserBelow?20:2}]}>
-                    {!sameUserBelow && <Text style={{position:'absolute',bottom:-15,left:0,color:'#999',fontSize:12,fontFamily:'courier',}} >{msg.username}</Text>}
-                    <View style={{maxWidth:'80%',}}>
-                      {/* <Text style={styles.messageTime}>Super • 9:01 AM</Text> */}
-                      <LinearGradient
-                        colors={['rgba(34, 149, 57, 0.9)', 'rgba(0, 186, 65, 0.88)']}
-                        style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:sameUserBelow?5:16,borderTopLeftRadius:sameUserOnTop?5:16}}
-                      >
-                        <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>
-                          {msg.content}
-                        </Text>
-                      </LinearGradient>
-                    </View>
-                  </View>
+              return(
+                <MessageBubble key={msg._id} user_id={user_id.current} message={msg} onReply={onReply} onLike={onLike} onUnLike={onUnLike} sameUserBelow={sameUserBelow} sameUserOnTop={sameUserOnTop} bySender={bySender}  />
               )
             })
           }
+          {/* {userTyping[0] && <View style={{position:'relative',flexDirection: 'row',maxHeight:42}}>
+            <View style={{}}>
+                <LinearGradient
+                colors={['rgba(34, 149, 57, 0.9)', 'rgba(0, 186, 65, 0.88)']}
+                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:5,display:'flex',flexDirection:'row',alignItems:'flex-end',justifyContent:'flex-start'}}
+                >
+                <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima',paddingRight:15}}>
+                  {userTyping[0].username} typing 
+                </Text>
+                <View style={{position:'absolute',right:-10,bottom:13}} >
+                  <TypingAnimation dotColor='#fff' dotSize={3} />
+                </View>
+                </LinearGradient>
+            </View>
+        </View>} */}
         </ScrollView>
 
         <Animated.View style={[msgBarStyleAnim,{position:toggleChatPosition?'fixed':'absolute',bottom:toggleChatPosition?0:-40,width:'100%'}]} >
@@ -352,10 +413,17 @@ export default function ChatInterface() {
             <TypingAnimation dotColor='#fff' dotSize={3} />
           </View>}
           <BlurView intensity={40} tint="dark" style={[styles.footer]}>
-            <View style={styles.inputContainer}>
+            <Animated.View style={[styles.inputContainer,{position:'relative'},replyStyle]}>
+              {messageToReply && <Animated.View style={[{position:'absolute',top:15,left:30,display:'flex',flexDirection:'row',zIndex:90,width:screen.width - 100},replyComponentsStyle]} >
+                <Text style={{position:'absolute',top:-23,left:0,fontFamily:'Agdasima',color:'white',fontSize:16}} >Replied to {messageToReply.user_id === user_id.current? "yourself":messageToReply.username}</Text>
+                <ReplyLineIcon style={{position:'absolute',left:-45,bottom:-15}} size={50} color="#4e739068" />
+                <MessageBubbleDead message={messageToReply} sameUserOnTop={false} sameUserBelow={false} bySender={messageToReply.user_id === user_id.current} />
+                <TouchableOpacity style={{position:'absolute',right:-40,bottom:0}} onPress={()=>removeReply()} >
+                  <CloseIcon size={40} color="#3e4952" />
+                </TouchableOpacity>
+              </Animated.View>}
               
-              
-              <View style={styles.inputWrapper}>
+              <View style={[styles.inputWrapper,{zIndex:99}]}>
                 <TextInput
                   style={styles.input}
                   placeholder="Type Message..."
@@ -390,7 +458,7 @@ export default function ChatInterface() {
                   <Image source={require('../../../assets/images/send.svg')} style={{height:22,width:22}} />
                 </LinearGradient>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
           </BlurView>
         </Animated.View>
 
@@ -679,7 +747,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgb(21, 33, 44)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',

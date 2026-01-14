@@ -5,6 +5,7 @@ import { authenticate, replaceWith } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
+import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from 'expo-router';
 import jdenticon from "jdenticon/standalone";
 import { ArrowLeft, Key, Share2, Users } from 'lucide-react-native';
@@ -99,8 +100,8 @@ export default function ChatDetailsScreen () {
         opacity: qrOpacity.value,
     }));
 
-    const copy = () => {
-        console.log("copied !!!")
+    const copy = async() => {
+        await Clipboard.setStringAsync(chatDataInit.chatKey);
         sendToast("info","Key copied.")
     }
 
@@ -171,14 +172,22 @@ export default function ChatDetailsScreen () {
             const iconSvg = jdenticon.toSvg(user.id.slice(16),200)
             const size = 50
             return(
-              <View key={user.id} style={styles.memberCard}>
+              <View key={user.id} style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: user.id === user_id.current?'rgba(130, 255, 144, 0.03)':'rgba(255, 255, 255, 0.03)',
+                    borderRadius: 12,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: user.id === user_id.current?'rgba(24, 255, 58, 0.08)':'rgba(255, 255, 255, 0.08)',
+                }}>
                 <View style={{width:50,height:50,overflow:'hidden',marginRight:10}}>
                   <SvgXml xml={iconSvg} width={size} height={size} />
                 </View>
                 
                 <View style={styles.memberInfo}>
                   <View style={styles.memberNameRow}>
-                    <Text style={[styles.memberName,{color:user.id === user_id.current?'#26dc3b':'#fff'}]}>$.<Text style={{color:'#fff'}}>{user.username}</Text></Text>
+                    <Text style={[styles.memberName,{color:user.id === user_id.current?'#26dc3b':'#fff'}]}>$ <Text style={{color:'#fff'}}>{user.username}</Text></Text>
                     {user.isAdmin && (
                       <View style={styles.adminBadge}>
                         <Text style={styles.adminText}>Admin</Text>
@@ -229,7 +238,7 @@ export default function ChatDetailsScreen () {
                 logoBackgroundColor="transparent"
               />
             </View>
-
+            
             <TouchableOpacity onPress={toggleQR} style={styles.qrCloseButton}>
               <Text style={styles.qrCloseText}>Close</Text>
             </TouchableOpacity>

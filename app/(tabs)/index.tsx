@@ -2,7 +2,7 @@ import { CopyIcon } from '@/assets/svgs/Copy';
 import { PlusIcon } from '@/assets/svgs/Plus';
 import { encrypt } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
-import { sleep } from '@/imports/usefull';
+import { randomKey, sleep } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
@@ -54,21 +54,14 @@ interface ChatSQL {
   descrption: string;
   anchor:string;
   key: string;
+  user_id:string;
 }
 
 const screen = Dimensions.get("screen")
 
 
 
-function randomKey() {
-  const len = 32
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#@!&%$?#@!&%$#@!&%$'
-  let result = ''
-  for (let i = 0; i < len; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return result
-}
+
 
 const ChatPich = () => {
   
@@ -120,14 +113,15 @@ const ChatPich = () => {
         AsyncStorage.getItem('token').then((t)=>{
           if (t) {
             token.current = t
-            getChats()
+            AsyncStorage.getItem('user_id').then((u)=>{
+              if (u) {
+                user_id.current = u
+                getChats()
+              }
+            })
           }
         })
-        AsyncStorage.getItem('user_id').then((t)=>{
-          if (t) {
-            user_id.current = t
-          }
-        })
+        
         return () => {
         };
       }, [])
@@ -158,7 +152,7 @@ const ChatPich = () => {
   const getChats = async() =>{
     const db = await SQLite.openDatabaseAsync('super_db');
     db_.current = db;
-    const allRows : ChatSQL[] = await db.getAllAsync('SELECT * FROM chats');
+    const allRows : ChatSQL[] = await db.getAllAsync('SELECT * FROM chats WHERE user_id = ?',[user_id.current]);
     setJoinedChats([])
     allRows.forEach(e => {
       setJoinedChats(prev => [...prev,{...e,id:e.chat_id}])
@@ -255,9 +249,7 @@ const ChatPich = () => {
       
     }
 
-    const changePriority = () => {
-      setPriorityChosen(prev => prev === "High"?"Low":prev === "Low"?"Medium":"High")
-    };
+   
 
     const createChat = async() =>{
       if (chatName.trim() === "") return
@@ -326,7 +318,12 @@ const ChatPich = () => {
     }
 
     const addChatSQL = async(chat : Chat) => {
-      await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id,user_id) values (?,?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption,user_id.current])
+      await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id,user_id) values (?,?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption,"none",user_id.current])
+    }
+
+    const logOut = () =>{
+      AsyncStorage.clear()
+      router.replace('/(auth)')
     }
     
 
@@ -344,7 +341,7 @@ const ChatPich = () => {
               >
           <ScrollView style={{position:'fixed',top:-45,minHeight:screen.height}} contentContainerStyle={{minHeight:screen.height,paddingTop:40}}  showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
-              <TouchableOpacity onPress={()=>{AsyncStorage.clear();router.replace('/(auth)')}} style={styles.headerLeft}>
+              <TouchableOpacity onPress={()=>logOut()} style={styles.headerLeft}>
                 <Text style={{fontFamily:'courier',fontSize:30,color:'white',margin:0}}>pich</Text>
               </TouchableOpacity>
             </View>

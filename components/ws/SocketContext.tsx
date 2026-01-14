@@ -28,13 +28,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             };
 
             ws.current.onclose = () => {
-            console.log('WS closed');
+                console.log('WS closed');
+                ws.current = new WebSocket(
+                    `ws://${ip}:${port}/ws?token=${t}`
+                );
             };
         })
         
 
         return () => {
-        ws.current?.close();
+            ws.current?.close();
         };
     }, []);
 

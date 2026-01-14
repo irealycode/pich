@@ -73,9 +73,16 @@ class ChatAnchor(BaseModel):
 class ChatAnchorJoin(BaseModel):
     anchor: str
 
+class ReplyCreate(BaseModel):
+    _id:str
+    user_id:str
+    content:str
+    username:str    
+
 class MessageCreate(BaseModel):
     chat_id: str
     content: str
+    reply: None | ReplyCreate
 
 class UserBlock(BaseModel):
     user_id: str
@@ -267,12 +274,15 @@ async def send_message(msg_data: MessageCreate, current_user: dict = Depends(get
         "username": current_user["username"],
         "content": msg_data.content,
         "created_at": datetime.utcnow(),
-        "type":"message"
     }
+
+    if msg_data.reply:
+        message["reply"] = msg_data.reply.model_dump()
     result = await db.messages.insert_one(message)
     
     message["_id"] = str(result.inserted_id)
     message["created_at"] = message["created_at"].isoformat()
+    message["type"] = "message"
 
     for user in chat['joined_users']:
         await redis_client.publish(
@@ -281,6 +291,58 @@ async def send_message(msg_data: MessageCreate, current_user: dict = Depends(get
         )
     
     return message
+
+@app.get("/messages/like/{chat_id}/{message_id}")
+async def send_message(chat_id: str,message_id: str, current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    user_id = str(current_user["_id"])
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    await db.messages.update_one({'_id':ObjectId(message_id)},{'$addToSet':{'likes':user_id}})
+    
+    message = {
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "message_id": message_id,
+        "type": "like"
+    }
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+    
+    return "liked"
+
+@app.get("/messages/unlike/{chat_id}/{message_id}")
+async def send_message(chat_id: str,message_id: str, current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    user_id = str(current_user["_id"])
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    await db.messages.update_one({'_id':ObjectId(message_id)},{'$pull':{'likes':user_id}})
+    
+    message = {
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "message_id": message_id,
+        "type": "unlike"
+    }
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+    
+    return "unliked"
 
 @app.get("/messages/typing/on/{chat_id}")
 async def get_typing(chat_id: str, current_user: dict = Depends(get_current_user)):

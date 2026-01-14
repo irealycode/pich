@@ -56,13 +56,21 @@ export async function authenticate({onSuccess,onFailure}:authOut) {
 
   if (result.success) {
     onSuccess()
-    console.log('Authenticated ✅');
   } else {
     if (onFailure) {
         onFailure("Authentication failed")
     }
-    console.log('Authentication failed ❌');
   }
+}
+
+export function randomKey() {
+  const len = 32
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#@!&%$?#@!&%$#@!&%$'
+  let result = ''
+  for (let i = 0; i < len; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return result
 }
 
 

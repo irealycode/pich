@@ -148,6 +148,9 @@ export default function searchChats() {
     }
 
     const joinChat = async(idkey : string) => {
+      if (idkey.trim() === "") {
+        return
+      }
       if (showCameraRef.current === false) return
       setShowCamera(false)
       showCameraRef.current = false
@@ -171,8 +174,32 @@ export default function searchChats() {
       }
     }
 
+    const joinChatKey = async(idkey : string) => {
+      if (idkey.trim() === "") {
+        return
+      }
+      const [id,key] = idkey.split('-')
+      const anchor = await encrypt(id,key)
+      const req = {
+        anchor
+      }
+      try {
+        const res = await axios.post(`http://${ip}:${port}/chats/join`,req,{
+          headers:{
+            Authorization : `Bearer ${token.current}`
+          }
+        })
+        console.log(res.data)
+        const chat = res.data
+        await addChatSQL({id,anchor,key,name:chat.name,descrption:chat.description})
+        router.push({pathname:'/(tabs)/(chat)',params:{chat_id:id,key,name:chat.name,description:chat.descrption}})
+      } catch (error) {
+        
+      }
+    }
+
   const addChatSQL = async(chat : Chat) => {
-    await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id,user_id) values (?,?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption,user_id.current])
+    await db_.current?.runAsync('INSERT INTO chats (chat_id,anchor,key,name,description,notif_id,user_id) values (?,?,?,?,?,?,?)',[chat.id,chat.anchor,chat.key,chat.name,chat.descrption,"none",user_id.current])
   }
 
   if (!permission) return null;
@@ -211,9 +238,9 @@ export default function searchChats() {
           contentContainerStyle={{ minHeight: screen.height, paddingTop: 40 }}  
           showsVerticalScrollIndicator={false}
         >
-            <View style={styles.header}>
+            <TouchableOpacity onPress={()=>requestJoinChat()} style={styles.header}>
                 <Text style={{ fontFamily: 'courier', fontSize: 30, color: 'white' }}>pich</Text>
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.greetingSection}>
                 <View style={{display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'flex-start'}} >
@@ -263,7 +290,7 @@ export default function searchChats() {
                     {/* <TouchableOpacity onPress={()=>closeAddTask()} style={{height:50,width:80,display:'flex',alignItems:'center',justifyContent:'center',backgroundColor:'#ff97977d',borderRadius:10,}} >
                         <Text style={{color:"#f87171ff",fontSize:25,fontFamily:'Agdasima'}} >X</Text>
                     </TouchableOpacity> */}
-                    <TouchableOpacity onPress={()=>{}} style={{height:50,width:'25%',display:'flex',alignItems:'center',justifyContent:'center',backgroundColor:'rgba(255, 255, 255, 0.12)',borderRadius:10,borderBottomRightRadius:23}} >
+                    <TouchableOpacity onPress={()=>joinChatKey(chatKey)} style={{height:50,width:'25%',display:'flex',alignItems:'center',justifyContent:'center',backgroundColor:'rgba(255, 255, 255, 0.12)',borderRadius:10,borderBottomRightRadius:23}} >
                         <Text style={{color:"#fff",fontSize:25,fontFamily:'Agdasima'}} >join</Text>
                     </TouchableOpacity>
                 </View>
