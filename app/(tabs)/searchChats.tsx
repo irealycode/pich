@@ -1,7 +1,7 @@
 import { AscpectIcon } from '@/assets/svgs/Aspect';
 import { CameraIcon } from '@/assets/svgs/Camera';
 import { PlusIcon } from '@/assets/svgs/Plus';
-import { encrypt } from '@/imports/crypto';
+import { encrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import { sleep } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -179,7 +179,7 @@ export default function searchChats() {
         return
       }
       const [id,key] = idkey.split('-')
-      const anchor = await encrypt(id,key)
+      const anchor = await encryptECB(id,key)
       const req = {
         anchor
       }

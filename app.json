@@ -22,7 +22,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.irealycode.pich"
     },
     "web": {
       "output": "static",
@@ -43,7 +44,7 @@
         }
       ],
       [
-      "expo-font",
+        "expo-font",
         {
           "fonts": [
             "./assets/fonts/Agdasima-Regular.ttf"
@@ -67,7 +68,10 @@
             ]
           },
           "ios": {
-            "fonts": ["./assets/fonts/Agdasima-Regular.ttf", "./assets/fonts/Agdasima-Bold.ttf"]
+            "fonts": [
+              "./assets/fonts/Agdasima-Regular.ttf",
+              "./assets/fonts/Agdasima-Bold.ttf"
+            ]
           }
         }
       ],
@@ -77,13 +81,13 @@
           "enableFTS": true,
           "useSQLCipher": true,
           "android": {
-            // Override the shared configuration for Android
             "enableFTS": false,
             "useSQLCipher": false
           },
           "ios": {
-            // You can also override the shared configurations for iOS
-            "customBuildFlags": ["-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_ENABLE_SNAPSHOT=1"]
+            "customBuildFlags": [
+              "-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_ENABLE_SNAPSHOT=1"
+            ]
           }
         }
       ]

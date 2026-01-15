@@ -49,6 +49,8 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
     const DOUBLE_PRESS_DELAY = 300;
     const panGestureSender = Gesture.Pan()
     .enabled(!isSelected)
+    .activeOffsetX([-60, 0])
+    .failOffsetY([-10, 10])
     .onUpdate(e => {
       if (e.translationX < 0 && translateX.value > -65) {
         translateX.value = e.translationX;
@@ -63,6 +65,8 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
 
     const panGestureUser = Gesture.Pan()
     .enabled(!isSelected)
+    .activeOffsetX([-60, 60])
+    .failOffsetY([-10, 10])
     .onUpdate(e => {
       if (e.translationX > 0 && translateX.value < 65) {
         translateX.value = e.translationX;
@@ -215,10 +219,12 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
                         </LinearGradient>
                     </View>
                 }
+                
+
                 {/* <Text style={styles.messageTimeUser}>You • 9:02 AM</Text> */}
                 <LinearGradient
                 colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
-                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomRightRadius:sameUserBelow?5:16,borderTopRightRadius:sameUserOnTop?5:16}}
+                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomRightRadius:sameUserBelow?5:16,borderTopRightRadius:sameUserOnTop?5:16,borderWidth:message.branch?2:0,borderColor:'#fff',borderStyle:'dashed'}}
                 >
                 <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>{message.content}</Text>
                 </LinearGradient>
@@ -290,7 +296,7 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
                 }
                 <LinearGradient
                 colors={['rgba(34, 149, 57, 0.9)', 'rgba(0, 186, 65, 0.88)']}
-                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:sameUserBelow?5:16,borderTopLeftRadius:sameUserOnTop?5:16}}
+                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:sameUserBelow?5:16,borderTopLeftRadius:sameUserOnTop?5:16,borderWidth:message.branch?2:0,borderColor:'#fff',borderStyle:'dashed'}}
                 >
                 <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima'}}>
                     {message.content}

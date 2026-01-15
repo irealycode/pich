@@ -5,7 +5,7 @@ import MessageBubble from '@/components/ui/MessageBubble';
 import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
-import { decrypt, encrypt } from '@/imports/crypto';
+import { decrypt, encrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -14,6 +14,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
+import jdenticon from "jdenticon/standalone";
 import React, { useCallback, useRef, useState } from 'react';
 import {
   Dimensions,
@@ -29,6 +30,7 @@ import {
   View
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { SvgXml } from 'react-native-svg';
 
 
 
@@ -66,7 +68,8 @@ export interface Message{
   username?: string,
   reply?: Reply | null,
   likes?: string[],
-  branch?: string
+  branch?: string,
+  from_branch?: string
 }
 
 interface TypingUser {
@@ -151,7 +154,8 @@ export default function ChatInterface() {
 
 
     const receiveMessage = async(msg : Message) => {
-      const decryptedMsg = decrypt(msg.content,key)
+      if(msg.from_branch) return
+      const decryptedMsg = await decrypt(msg.content,key)
       setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
     }
     const parseAndDecryptMessages = async(msgs : Message[]) =>{
@@ -165,7 +169,7 @@ export default function ChatInterface() {
     
     const getChat = async() =>{
         try {
-          const anchor = await encrypt(chat_id,key)
+          const anchor = await encryptECB(chat_id,key)
           const req = {
             anchor,
             limit: 50
@@ -245,6 +249,7 @@ export default function ChatInterface() {
       try {
         const msgEncrypted = await encrypt(message,key)
         let reply = null
+        let from_branch = null
         if (messageToReply) {
           reply = {
             _id : messageToReply._id,
@@ -257,7 +262,8 @@ export default function ChatInterface() {
         let req = {
           "chat_id": chat_id,
           "content": msgEncrypted,
-          "reply": reply
+          "reply": reply,
+          "from_branch" : from_branch
         }
         const res = await axios.post(`http://${ip}:${port}/messages`,req,{
           headers:{
@@ -345,18 +351,21 @@ export default function ChatInterface() {
 
   const onBranch = async(message: Message) =>{
     if (!message.branch) {
-       await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
+       const branch = await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
         headers:{
           Authorization : `Bearer ${token.current}`
         }
       })
+      setMessageBubbleSelected(null)
+      router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:branch.data}})
       return
     }
+    setMessageBubbleSelected(null)
     router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
     console.log(message)
   }
   
-
+  const chatIcon = jdenticon.toSvg(chat_id.slice(16),30)
   return (
     <SafeAreaView style={styles.container}>
       
@@ -369,7 +378,8 @@ export default function ChatInterface() {
               <TouchableOpacity onPress={()=>goBack()} >
                 <BackIcon size={35} color='white' />
               </TouchableOpacity>
-              <TouchableOpacity onPress={()=>chatDetails()} style={styles.headerText}>
+              <TouchableOpacity onPress={()=>chatDetails()} style={{display:'flex',flexDirection:'row',gap:5,alignItems:'center',justifyContent:'center'}}>
+                <SvgXml xml={chatIcon} width={35} height={35} />
                 <Text style={{fontFamily:'Agdasima',fontSize:30,color:'white',marginTop:-5}}>{name}</Text>
               </TouchableOpacity>
             </View>

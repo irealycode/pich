@@ -5,7 +5,7 @@ import MessageBubble from '@/components/ui/MessageBubble';
 import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
-import { decrypt, encrypt } from '@/imports/crypto';
+import { decrypt, encrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -14,21 +14,23 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
+import jdenticon from "jdenticon/standalone";
 import React, { useCallback, useRef, useState } from 'react';
 import {
-    Dimensions,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { SvgXml } from 'react-native-svg';
 import { Message } from '.';
 
 
@@ -121,7 +123,7 @@ export default function ChatBranchInterface() {
       })
       const unsubscribe = onMessage((msg) => {
         console.log('Received:', msg);
-        if(msg.chat_id === chat_id){
+        if(msg.chat_id === chat_id && msg.from_branch === branch_id){
           if(msg.type === "typing_start"){
             usersTyping.current = [...usersTyping.current,{username:msg.username}]
             setUserTyping(usersTyping.current)
@@ -143,7 +145,7 @@ export default function ChatBranchInterface() {
 
 
     const receiveMessage = async(msg : Message) => {
-      const decryptedMsg = decrypt(msg.content,key)
+      const decryptedMsg = await decrypt(msg.content,key)
       setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
     }
     const parseAndDecryptMessages = async(msgs : Message[]) =>{
@@ -157,18 +159,23 @@ export default function ChatBranchInterface() {
     
     const getBranch = async() =>{
         try {
-          const res = await axios.get(`http://${ip}:${port}/messages/branch/${branch_id}`,{
+            const anchor = await encryptECB(chat_id,key)
+            const req = {
+                anchor,
+                limit: 50
+            }
+          const res = await axios.post(`http://${ip}:${port}/messages/branch/${chat_id}/${branch_id}`,req,{
             headers:{
               Authorization : `Bearer ${token.current}`
             }
           })
           const data = res.data
-          console.log(data)
-          let msg = data.message
+          console.log('res: ',data)
+          let msg = data.branch.message
           msg.content = decrypt(msg.content,key)
           setMessageBranched(msg)
-        //   const parsedMessages = await parseAndDecryptMessages(data.messages)
-        //   setMessages(parsedMessages)
+          const parsedMessages = await parseAndDecryptMessages(data.messages)
+          setMessages(parsedMessages)
         } catch (error) {
           console.error(error)
         }
@@ -248,7 +255,8 @@ export default function ChatBranchInterface() {
         let req = {
           "chat_id": chat_id,
           "content": msgEncrypted,
-          "reply": reply
+          "reply": reply,
+          "from_branch" : branch_id
         }
         const res = await axios.post(`http://${ip}:${port}/messages`,req,{
           headers:{
@@ -336,16 +344,21 @@ export default function ChatBranchInterface() {
   
   const onBranch = async(message: Message) =>{
     if (!message.branch) {
-       await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
+       const branch = await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
         headers:{
           Authorization : `Bearer ${token.current}`
         }
       })
+      setMessageBubbleSelected(null)
+      router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:branch.data}})
       return
     }
+    setMessageBubbleSelected(null)
+    router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
     console.log(message)
   }
 
+  const chatIcon = jdenticon.toSvg(chat_id.slice(16),30)
   return (
     <SafeAreaView style={styles.container}>
       
@@ -358,7 +371,8 @@ export default function ChatBranchInterface() {
               <TouchableOpacity onPress={()=>goBack()} >
                 <BackIcon size={35} color='white' />
               </TouchableOpacity>
-              <TouchableOpacity onPress={()=>chatDetails()} style={styles.headerText}>
+              <TouchableOpacity onPress={()=>chatDetails()} style={{display:'flex',flexDirection:'row',gap:5,alignItems:'center',justifyContent:'center'}}>
+                <SvgXml xml={chatIcon} width={35} height={35} />
                 <Text style={{fontFamily:'Agdasima',fontSize:30,color:'white',marginTop:-5}}>{name}</Text>
               </TouchableOpacity>
             </View>
@@ -383,7 +397,7 @@ export default function ChatBranchInterface() {
             console.log('Content height:', height);
           }}
           ref={scrollViewRef}
-          style={{marginTop:30}}
+          style={{marginTop:80}}
           scrollEnabled={!messageBubbleSelected}
           contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
           showsVerticalScrollIndicator={false}
@@ -391,7 +405,7 @@ export default function ChatBranchInterface() {
         >
           <View style={styles.dateBadgeContainer}>
             <BlurView intensity={40} tint="dark" style={styles.dateBadge}>
-              <Text style={styles.dateBadgeText}>TODAY</Text>
+              <Text style={styles.dateBadgeText}>BRANCH CREATED</Text>
             </BlurView>
           </View>
 

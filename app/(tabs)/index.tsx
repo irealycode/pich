@@ -1,6 +1,6 @@
 import { CopyIcon } from '@/assets/svgs/Copy';
 import { PlusIcon } from '@/assets/svgs/Plus';
-import { encrypt } from '@/imports/crypto';
+import { encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import { randomKey, sleep } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -253,7 +253,6 @@ const ChatPich = () => {
 
     const createChat = async() =>{
       if (chatName.trim() === "") return
-      const id = Date.now(); // you would get this from the db later
       const key = randomKey()
       // const k = "p!Ch-JcXPfNVA@@x-FEI#xKE9KL-%&t6mLjsQ5-yN6T$J0&%Z-Prr9#IkDR"
       
@@ -262,7 +261,7 @@ const ChatPich = () => {
       // const d = await decrypt(c,key)
 
       const req = {
-        name : chatName,
+        name : chatName.trim(),
         descrption : 'your own pich chat !',
       }
 
@@ -278,7 +277,7 @@ const ChatPich = () => {
           }
         })
         const data = res.data
-        const anchor = await encrypt(data._id,key)
+        const anchor = await encryptECB(data._id,key)
         const req1 = {
           chat_id : data._id,
           anchor
