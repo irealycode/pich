@@ -16,19 +16,20 @@ import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'exp
 import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Dimensions,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Message } from '.';
 
 
 
@@ -57,26 +58,15 @@ interface Reply {
   username: string
 }
 
-export interface Message{
-  _id: string, 
-  chat_id: string,
-  content: string,
-  created_at: string,
-  user_id: string,
-  username?: string,
-  reply?: Reply | null,
-  likes?: string[],
-  branch?: string
-}
 
 interface TypingUser {
   username: string
 }
 const screen = Dimensions.get("screen")
 
-export default function ChatInterface() {
+export default function ChatBranchInterface() {
   const { onMessage } = useSocket();
-  const {chat_id,key,name,description} = useLocalSearchParams<{ chat_id:string,key:string, name: string,description:string }>()
+  const {chat_id,key,name,description,branch_id} = useLocalSearchParams<{ chat_id:string, key:string, name:string, description:string, branch_id:string }>()
   const token = useRef('')
   const user_id = useRef('')
   const navigation = useNavigation();
@@ -103,6 +93,7 @@ export default function ChatInterface() {
     opacity:replyPaddingTop.value/75
   }))
   const [messageBubbleSelected, setMessageBubbleSelected] = useState<Message | null>(null);
+  const [messageBranched, setMessageBranched] = useState<Message | null>(null);
   
 
     useFocusEffect(
@@ -119,7 +110,8 @@ export default function ChatInterface() {
       AsyncStorage.getItem('token').then((t)=>{
         if (t) {
           token.current = t
-          getChat()
+        //   getChat()
+            getBranch()
         }
       })
       AsyncStorage.getItem('user_id').then((t)=>{
@@ -163,21 +155,20 @@ export default function ChatInterface() {
       return msgsCopy
     }
     
-    const getChat = async() =>{
+    const getBranch = async() =>{
         try {
-          const anchor = await encrypt(chat_id,key)
-          const req = {
-            anchor,
-            limit: 50
-          }
-          const res = await axios.post(`http://${ip}:${port}/messages/${chat_id}`,req,{
+          const res = await axios.get(`http://${ip}:${port}/messages/branch/${branch_id}`,{
             headers:{
               Authorization : `Bearer ${token.current}`
             }
           })
           const data = res.data
-          const parsedMessages = await parseAndDecryptMessages(data.messages)
-          setMessages(parsedMessages)
+          console.log(data)
+          let msg = data.message
+          msg.content = decrypt(msg.content,key)
+          setMessageBranched(msg)
+        //   const parsedMessages = await parseAndDecryptMessages(data.messages)
+        //   setMessages(parsedMessages)
         } catch (error) {
           console.error(error)
         }
@@ -342,7 +333,7 @@ export default function ChatInterface() {
     console.log('long press')
     setMessageBubbleSelected(message)
   }
-
+  
   const onBranch = async(message: Message) =>{
     if (!message.branch) {
        await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
@@ -352,10 +343,8 @@ export default function ChatInterface() {
       })
       return
     }
-    router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
     console.log(message)
   }
-  
 
   return (
     <SafeAreaView style={styles.container}>
@@ -363,7 +352,7 @@ export default function ChatInterface() {
       
 
       <Animated.View style={[topBarStyleAnim,{position:'absolute',top:-100,width:'100%',zIndex:90}]}  >
-        <BlurView intensity={50} tint="dark" style={{paddingHorizontal:20,paddingVertical:10,paddingTop:50,width:'100%',borderBottomWidth:1,borderColor:'#ffffff31'}}>
+        <BlurView intensity={50} tint="dark" style={{paddingHorizontal:20,paddingVertical:10,paddingTop:25,width:'100%',borderBottomWidth:1,borderColor:'#ffffff31'}}>
           <View style={styles.headerContent}>
             <View style={styles.headerLeft}>
               <TouchableOpacity onPress={()=>goBack()} >
@@ -374,6 +363,11 @@ export default function ChatInterface() {
               </TouchableOpacity>
             </View>
           </View>
+          <View style={{marginTop:10,display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'flex-start',width:'90%'}} >
+            <ReplyLineIcon size={35} color='#4e739068' style={{marginBottom:-12}} />
+            {messageBranched && <MessageBubbleDead message={messageBranched} sameUserBelow={false} sameUserOnTop={false} bySender={messageBranched.user_id === user_id.current} />}
+          </View>
+
         </BlurView>
       </Animated.View>
 

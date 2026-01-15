@@ -33,10 +33,11 @@ interface MessageBubbleType {
     onReply : (message : Message) => void,
     onLike : (message : Message) => void,
     onUnLike : (message : Message) => void,
-    onLongPress : (message : Message) => void
+    onLongPress : (message : Message) => void,
+    onBranch : (message : Message) => void,
 }
 
-export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, bySender, user_id, isSelected, onReply, onLike, onUnLike, onLongPress } : MessageBubbleType) {
+export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, bySender, user_id, isSelected, onReply, onLike, onUnLike, onLongPress, onBranch } : MessageBubbleType) {
 
     const [menuPosition,setMenuPosition] = useState<'top' | 'bottom' | 'mid'>('top')
     const bubbleRef = useRef<View>(null);
@@ -169,9 +170,9 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
                     <ReplyIcon size={34} color="white" />
                     <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >Reply</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                <TouchableOpacity onPress={()=>onBranch(message)} style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
                     <BranchIcon size={34} color="white" />
-                    <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >Branch</Text>
+                    <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >{message.branch?'Branched':'Branch'}</Text>
                 </TouchableOpacity>
 
                 <View style={{height:2,width:'80%',marginLeft:'10%',backgroundColor:'#9999996e',marginVertical:4,borderRadius:2}} ></View>
@@ -242,9 +243,9 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
                     <ReplyIcon size={34} color="white" />
                     <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >Reply</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                <TouchableOpacity onPress={()=>onBranch(message)} style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
                     <BranchIcon size={34} color="white" />
-                    <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >Branch</Text>
+                    <Text style={{color:'#ffffff',fontSize:15,fontWeight:600}} >{message.branch?'Branched':'Branch'}</Text>
                 </TouchableOpacity>
 
                 <View style={{height:2,width:'80%',marginLeft:'10%',backgroundColor:'#9999996e',marginVertical:4,borderRadius:2}} ></View>

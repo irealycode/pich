@@ -392,7 +392,11 @@ async def get_messages(chat_id: str, params: MessagesChatParams, current_user: d
         raise HTTPException(status_code=404, detail="Chat not found")
     
     messages = []
-    async for msg in db.messages.find({"chat_id": str(chat['_id'])}).sort("created_at", -1).limit(params.limit):
+    async for msg in db.messages.find({"chat_id": str(chat['_id']),"$or": [
+        {"from_branch": {"$exists": False}},
+        {"from_branch": None},
+        {"from_branch": ""}
+    ]}).sort("created_at", -1).limit(params.limit):
         msg["_id"] = str(msg["_id"])
         msg["created_at"] = msg["created_at"].isoformat()
         messages.append(msg)
@@ -400,6 +404,49 @@ async def get_messages(chat_id: str, params: MessagesChatParams, current_user: d
     chat['_id'] = str(chat['_id'])
     return {'chat':chat,'messages':list(reversed(messages))}
 
+@app.get("/messages/branch/{chat_id}/{message_id}")
+async def branch_message(chat_id: str, message_id: str, current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id":ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    branch = await db.branches.find_one({"message_id":message_id})
+    if branch:
+        raise HTTPException(status_code=400, detail="Branch already exists")
+    
+    branch_data = {
+        "message_id": message_id,
+        "chat_id": chat_id,
+        "branched_by": str(current_user["_id"])
+    }
+
+    branch_inserted = await db.branches.insert_one(branch_data)
+
+    db.messages.update_one({"_id":ObjectId(message_id)},{"$set":{"branch":str(branch_inserted.inserted_id)}})
+    
+    return str(branch_inserted.inserted_id)
+
+@app.get("/messages/branch/{branch_id}")
+async def branch_message(branch_id: str, current_user: dict = Depends(get_current_user)):
+    
+    branch = await db.branches.find_one({"_id":ObjectId(branch_id)})
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    
+    message = await db.messages.find_one({"_id":ObjectId(branch["message_id"])})
+    message["_id"] = str(message["_id"])
+    branch["_id"] = str(branch["_id"])
+    branch["branched_by"] = str(branch["branched_by"])
+    branch["message"] = message
+    print(branch)
+    return branch
+
+
+
+
+
+    
+    
 # WebSocket for real-time chat
 class ConnectionManager:
     def __init__(self):
