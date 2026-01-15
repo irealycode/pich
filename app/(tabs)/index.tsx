@@ -1,5 +1,6 @@
 import { CopyIcon } from '@/assets/svgs/Copy';
 import { PlusIcon } from '@/assets/svgs/Plus';
+import ChatItem from '@/components/ui/ChatItem';
 import { encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import { randomKey, sleep } from '@/imports/usefull';
@@ -9,7 +10,6 @@ import { BlurView } from 'expo-blur';
 import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
-import jdenticon from "jdenticon/standalone";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
@@ -27,7 +27,6 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SvgXml } from 'react-native-svg';
 
 interface Task {
   id : number,
@@ -55,6 +54,12 @@ interface ChatSQL {
   anchor:string;
   key: string;
   user_id:string;
+}
+
+interface ConfirmationParams{
+  type : 'info' | 'urgent'
+  onYes : () => void
+  onNo : () => void
 }
 
 const screen = Dimensions.get("screen")
@@ -106,6 +111,7 @@ const ChatPich = () => {
     const [showCopy,setShowCopy] = useState(false)
     const token = useRef('')
     const user_id = useRef('')
+    const [showConfirmation,setShowConfirmation] = useState<ConfirmationParams | null>(null)
 
 
     useFocusEffect(
@@ -324,14 +330,49 @@ const ChatPich = () => {
       AsyncStorage.clear()
       router.replace('/(auth)')
     }
+
+    const onRemove = (chat : Chat) => {
+      console.log('removed')
+      setShowConfirmation({
+        type : 'urgent',
+        onYes: () => {
+          db_.current?.runAsync('DELETE from chats WHERE chat_id = ? AND user_id = ?',[chat.id,user_id.current]).then(()=>{
+            setShowConfirmation(null)
+            getChats()
+          })
+        },
+        onNo : () => {
+          setShowConfirmation(null)
+        }
+      })
+    }
+
+    
     
 
     return (
       <SafeAreaView style={styles.container}>
         {/* <StatusBar barStyle="light-content" /> */}
         {showAddTask && !typingOnAdd && <Pressable onPress={()=>closeAddTask()} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',zIndex:2}} >
-
         </Pressable>}
+
+        {showConfirmation && <Pressable onPress={()=>setShowConfirmation(null)} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',zIndex:3}} >
+          <BlurView intensity={40} style={{height:'100%',width:'100%'}} >
+          </BlurView>
+        </Pressable>}
+
+        {showConfirmation &&
+        <View style={{position:'absolute',zIndex:4,top:'50%',left:'50%',transform:'translateX(-100%) translateY(-50%)',paddingTop:20,paddingBottom:10,paddingHorizontal:10,width:200,backgroundColor:'rgba(150, 171, 190, 0.21)',borderRadius:16,borderWidth:1,borderColor:"#5a5a5a92",display:'flex',alignItems:'center',justifyContent:'center'}} >
+          <Text style={{color:'white',fontFamily:'Agdasima-Bold',fontSize:23}} >Are you sure?</Text>
+          <View style={{display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'center',marginTop:40}} >
+              <TouchableOpacity onPress={()=>showConfirmation.onNo()} style={{width:'50%',display:'flex',alignItems:'center',justifyContent:'center',}} >
+                <Text style={{color:'white',fontFamily:'Agdasima-Bold',fontSize:23}} >No</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={()=>showConfirmation.onYes()} style={{width:'50%',display:'flex',alignItems:'center',justifyContent:'center',backgroundColor:showConfirmation.type === 'info'?'#ffffff23':'#ff6f6fb1',borderRadius:13,paddingVertical:10}} >
+                <Text style={{color:'white',fontFamily:'Agdasima-Bold',fontSize:23}} >Yes</Text>
+              </TouchableOpacity>
+          </View>
+        </View>}
         
         <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -377,18 +418,9 @@ const ChatPich = () => {
 
             <View style={styles.chatsContainer}>
                 {joinedChats.map((chat: Chat) => {
-                  const iconSvg = jdenticon.toSvg(chat.id.slice(16),200)
-                  const size = 50
+                  
                   return(
-                <TouchableOpacity onPress={()=>router.push({pathname:'/(tabs)/(chat)',params:{chat_id:chat.id,key:chat.key,name:chat.name,description:chat.descrption}})} key={chat.id} style={styles.chatCard}>
-                    <View style={{width:size,height:size,marginRight:10}}>
-                      <SvgXml xml={iconSvg} width={size} height={size} />
-                    </View>
-                    <View style={styles.chatInfo}>
-                      <Text style={styles.chatName}>{chat.name}</Text>
-                      <Text style={styles.chatKey}>last message</Text>
-                    </View>
-                </TouchableOpacity>
+                    <ChatItem key={chat.id} chat={chat} onRemove={onRemove} />
                 )})}
             </View>
 
@@ -791,39 +823,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 12,
   },
-  chatCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ffffff1a',
-  },
-  chatIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  chatInfo: {
-    flex: 1,
-  },
-  chatName: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 4,
-    fontFamily:'Agdasima'
-  },
-  chatKey: {
-    fontSize: 14,
-    color: '#ffffff66',
-    fontFamily: 'courier',
-  },
+  
 });
 
 export default ChatPich;

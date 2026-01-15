@@ -399,7 +399,7 @@ export default function ChatBranchInterface() {
           ref={scrollViewRef}
           style={{marginTop:80}}
           scrollEnabled={!messageBubbleSelected}
-          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
+          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20,minHeight:screen.height - 200}}
           showsVerticalScrollIndicator={false}
           
         >

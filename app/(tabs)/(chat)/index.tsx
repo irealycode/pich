@@ -401,13 +401,13 @@ export default function ChatInterface() {
           ref={scrollViewRef}
           style={{marginTop:30}}
           scrollEnabled={!messageBubbleSelected}
-          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
+          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20,minHeight:screen.height - 150}}
           showsVerticalScrollIndicator={false}
           
         >
           <View style={styles.dateBadgeContainer}>
             <BlurView intensity={40} tint="dark" style={styles.dateBadge}>
-              <Text style={styles.dateBadgeText}>TODAY</Text>
+              <Text style={styles.dateBadgeText}>CHAT CREATED</Text>
             </BlurView>
           </View>
 

@@ -5,6 +5,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs, useNavigation } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 
@@ -50,67 +51,69 @@ export default function TabLayout() {
     animatedBottom.value = withTiming(-100, { duration: 300 })
   }
   return (
-    <SocketProvider>
-      <Tabs
-        screenOptions={{headerShown:false,tabBarInactiveTintColor:'rgba(255, 255, 255, 0.59)',tabBarActiveTintColor:'#fff',tabBarShowLabel:false,tabBarStyle: {
-            display:'none'
-          },}}
-          
-          tabBar={({ state, descriptors, navigation }) => (
-          <Animated.View style={[styles.wrapper, tabBarStyleAnim]}>
-            <BlurView intensity={20} tint="light" style={styles.island}>
-              {state.routes.map((route, index) => {
-                const isFocused = state.index === index;
-                if (route.name === "(chat)") return
-                return (
-                  <Pressable
-                    key={route.key}
-                    onPress={() => nav(navigation,route.name)}
-                    style={[styles.tab, isFocused && styles.active]}
-                  >
-                    {descriptors[route.key].options.tabBarIcon?.({
-                      focused: isFocused,
-                      color: isFocused ? "#ffffffff" : "#ffffff74",
-                      size: 22
-                    })}
-                  </Pressable>
-                );
-              })}
-            </BlurView>
-          </Animated.View>
-        )}>
-        <Tabs.Screen
-          name="index"
-
-          options={{
-            title: 'Home',
-            headerShown:false,
-
-            tabBarIcon: ({ color, size , focused }) => (
-              <View style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}} >
-                  <HomeIcon color={color} size={size+5} />
-                  {/* <Text style={{fontSize:12,color:color,fontFamily:'Agdasima-Bold'}} >Home</Text> */}
-              </View>
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="searchChats"
-          initialParams={{animatedBottom}}
-          options={{
-            title: 'Chat',
-            headerShown:false,
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SocketProvider>
+        <Tabs
+          screenOptions={{headerShown:false,tabBarInactiveTintColor:'rgba(255, 255, 255, 0.59)',tabBarActiveTintColor:'#fff',tabBarShowLabel:false,tabBarStyle: {
+              display:'none'
+            },}}
             
-            tabBarIcon: ({ color, size , focused }) => (
-              <View style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}} >
-                  <SearchIcon color={color} size={size+5} />
-                  {/* <Text style={{fontSize:12,color:color,fontFamily:'Agdasima-Bold'}} >Super</Text> */}
-              </View>
-            ),
-          }}
-        />
-      </Tabs>
-    </SocketProvider>
+            tabBar={({ state, descriptors, navigation }) => (
+            <Animated.View style={[styles.wrapper, tabBarStyleAnim]}>
+              <BlurView intensity={20} tint="light" style={styles.island}>
+                {state.routes.map((route, index) => {
+                  const isFocused = state.index === index;
+                  if (route.name === "(chat)") return
+                  return (
+                    <Pressable
+                      key={route.key}
+                      onPress={() => nav(navigation,route.name)}
+                      style={[styles.tab, isFocused && styles.active]}
+                    >
+                      {descriptors[route.key].options.tabBarIcon?.({
+                        focused: isFocused,
+                        color: isFocused ? "#ffffffff" : "#ffffff74",
+                        size: 22
+                      })}
+                    </Pressable>
+                  );
+                })}
+              </BlurView>
+            </Animated.View>
+          )}>
+          <Tabs.Screen
+            name="index"
+
+            options={{
+              title: 'Home',
+              headerShown:false,
+
+              tabBarIcon: ({ color, size , focused }) => (
+                <View style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}} >
+                    <HomeIcon color={color} size={size+5} />
+                    {/* <Text style={{fontSize:12,color:color,fontFamily:'Agdasima-Bold'}} >Home</Text> */}
+                </View>
+              ),
+            }}
+          />
+          <Tabs.Screen
+            name="searchChats"
+            initialParams={{animatedBottom}}
+            options={{
+              title: 'Chat',
+              headerShown:false,
+              
+              tabBarIcon: ({ color, size , focused }) => (
+                <View style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}} >
+                    <SearchIcon color={color} size={size+5} />
+                    {/* <Text style={{fontSize:12,color:color,fontFamily:'Agdasima-Bold'}} >Super</Text> */}
+                </View>
+              ),
+            }}
+          />
+        </Tabs>
+      </SocketProvider>
+    </GestureHandlerRootView>
   );
 }
 
