@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/assets/svgs/Copy';
 import { PlusIcon } from '@/assets/svgs/Plus';
 import ChatItem from '@/components/ui/ChatItem';
-import { encryptECB } from '@/imports/crypto';
+import { decrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
 import { randomKey, sleep } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -44,6 +44,8 @@ export interface Chat {
   descrption: string;
   anchor:string;
   key: string;
+  last_message?: string;
+  last_sender?: string;
 }
 
 interface ChatSQL {
@@ -72,19 +74,13 @@ const ChatPich = () => {
   
     const [showAddTask,setShowAddTask] = useState(false)
     const [typingOnAdd,setTypingOnAdd] = useState(false)
-    const [dateChosen,setDateChosen] = useState<Date | undefined>(new Date())
     const db_ = useRef<SQLite.SQLiteDatabase | null>(null)
     const [chatName,setChatName] = useState("")
-    const [priorityChosen,setPriorityChosen] = useState<'High' | 'Medium' | 'Low'>('Medium')
     const addBottom = useSharedValue(70)
     const addHeight = useSharedValue(70)
     const addWidth = useSharedValue(70)
     const addButtonOpacity = useSharedValue(1)
-    const [tasks, setTasks] = useState<Task[]>([]);
     const [joinedChats, setJoinedChats] = useState<Chat[]>([])
-    const completedTasks = tasks.filter(t => t.completed).length;
-    const totalTasks = tasks.length;
-    const productivity = Math.round((completedTasks / totalTasks) * 100);
     const addTaskStyleAnim = useAnimatedStyle(() => ({
         bottom: addBottom.value,
         height: addHeight.value,
@@ -96,13 +92,7 @@ const ChatPich = () => {
     const addBlurAnimatedStyle = useAnimatedStyle(() => ({
         opacity : 1 - addButtonOpacity.value
     }));
-    const deleteTaskTop = useSharedValue(0)
-    const deleteTaskOpacity = useSharedValue(0)
-    const [taskToDelete,setTaskToDelete] = useState(0)
-    const deleteTaskStyleAnimated = useAnimatedStyle(() => ({
-        top:deleteTaskTop.value,
-        opacity:deleteTaskOpacity.value
-    }));
+    
     const keyCopyOpacity = useSharedValue(0)
     const keyCopyStyle = useAnimatedStyle(() => ({
         opacity:keyCopyOpacity.value
@@ -116,17 +106,7 @@ const ChatPich = () => {
 
     useFocusEffect(
       useCallback(() => {
-        AsyncStorage.getItem('token').then((t)=>{
-          if (t) {
-            token.current = t
-            AsyncStorage.getItem('user_id').then((u)=>{
-              if (u) {
-                user_id.current = u
-                getChats()
-              }
-            })
-          }
-        })
+        getChats()
         
         return () => {
         };
@@ -134,6 +114,17 @@ const ChatPich = () => {
     );
 
     useEffect(() => {
+      AsyncStorage.getItem('token').then((t)=>{
+          if (t) {
+            token.current = t
+            AsyncStorage.getItem('user_id').then((u)=>{
+              if (u) {
+                user_id.current = u
+                getChatsAndLastMessages()
+              }
+            })
+          }
+        })
     // const configureNotificationsAsync = async () => {
     //   const { granted } = await Notifications.requestPermissionsAsync();
     //   if (!granted) {
@@ -151,28 +142,46 @@ const ChatPich = () => {
     // };
     // configureNotificationsAsync();
     
-  }, []);
+    }, []);
 
   
 
   const getChats = async() =>{
-    const db = await SQLite.openDatabaseAsync('super_db');
-    db_.current = db;
-    const allRows : ChatSQL[] = await db.getAllAsync('SELECT * FROM chats WHERE user_id = ?',[user_id.current]);
-    setJoinedChats([])
-    allRows.forEach(e => {
-      setJoinedChats(prev => [...prev,{...e,id:e.chat_id}])
-    })
-    console.log(allRows)
-    // const res = await axios.get(`http://${ip}:${port}/chats`,{
-    //   headers:{
-    //     Authorization : `Bearer ${token.current}`
-    //   }
-    // })
-    // const data = res.data
-    // setJoinedChats(data.map((c : {_id : string, name : string, })=> ({})))
-    // console.log(data)
-  }
+      const db = await SQLite.openDatabaseAsync('super_db');
+      db_.current = db;
+      const allRows : ChatSQL[] = await db.getAllAsync('SELECT * FROM chats WHERE user_id = ?',[user_id.current]);
+      setJoinedChats([])
+      allRows.forEach(async e =>{
+        setJoinedChats(prev => [...prev,{...e,id:e.chat_id}])
+      })
+      console.log(allRows)
+    }
+
+    const getChatsAndLastMessages = async() =>{
+      const db = await SQLite.openDatabaseAsync('super_db');
+      db_.current = db;
+      const allRows : ChatSQL[] = await db.getAllAsync('SELECT * FROM chats WHERE user_id = ?',[user_id.current]);
+      setJoinedChats([])
+      allRows.forEach(async e =>{
+        // this way has to change when the app grows
+
+        const res = await axios.get(`http://${ip}:${port}/messages/latest/${e.chat_id}`,{
+            headers:{
+              Authorization : `Bearer ${token.current}`
+            }
+        })
+        if (res.status === 200) {
+          const content = res.data.content
+          const user = res.data.username
+          const last_message = decrypt(content,e.key)
+          setJoinedChats(prev => [...prev,{...e,id:e.chat_id,last_message:last_message,last_sender:user}])
+          db.runAsync("UPDATE chats SET last_message = ? , last_sender = ? WHERE chat_id = ?",[last_message,user,e.chat_id])
+        }else if(res.status === 201){
+          setJoinedChats(prev => [...prev,{...e,id:e.chat_id}])
+        }
+      })
+      console.log(allRows)
+    }
 
     const sendNotification = (title:string, body:string) => {
       Notifications.scheduleNotificationAsync({

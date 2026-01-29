@@ -45,6 +45,7 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
     const likeScale = useSharedValue(1);
     const selectBubbleScale = useSharedValue(0);
     const lastPress = useRef(0);
+    const normalPress = useRef<ReturnType<typeof setTimeout> | null>(null);
     const THRESHOLD = 60;
     const DOUBLE_PRESS_DELAY = 300;
     const panGestureSender = Gesture.Pan()
@@ -100,7 +101,16 @@ export default function MessageBubble({ message, sameUserBelow, sameUserOnTop, b
         const now = Date.now();
 
         if (now - lastPress.current < DOUBLE_PRESS_DELAY) {
+            if (normalPress.current) {
+                clearTimeout(normalPress.current)
+            }
             sendOnlike(msg)
+        }else{
+            normalPress.current = setTimeout(()=>{
+                if (msg.branch) {
+                    onBranch(msg)
+                }
+            },DOUBLE_PRESS_DELAY+10)
         }
 
         lastPress.current = now;

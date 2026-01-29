@@ -32,7 +32,9 @@ export default function RootLayout() {
       description TEXT,
       key TEXT,
       notif_id TEXT,
-      user_id TEXT
+      user_id TEXT,
+      last_message TEXT,
+      last_sender TEXT
     );
     `);
     // CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY NOT NULL, chat_id INTEGER ,  TEXT NOT NULL, date TEXT, name TEXT, key TEXT, notif_id TEXT);

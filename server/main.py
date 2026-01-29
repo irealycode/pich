@@ -6,7 +6,7 @@ from typing import List, Optional
 import jwt
 from bson import ObjectId
 from fastapi import (Depends, FastAPI, HTTPException, WebSocket,
-                     WebSocketDisconnect, status)
+                     WebSocketDisconnect, status, Response)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -91,6 +91,27 @@ class UserBlock(BaseModel):
 class MessagesChatParams(BaseModel):
     anchor:str
     limit:int
+
+class PollOption(BaseModel):
+    id: str
+    text: str
+    votes: List[str] = []
+
+class PollData(BaseModel):
+    question: str
+    options: List[PollOption]
+    multiple_choice: Optional[bool] = False
+    expires_at: Optional[datetime] = None
+
+class PollCreate(BaseModel):
+    chat_id: str
+    poll: PollData
+    reply: Optional[dict] = None
+    from_branch: Optional[str] = None
+
+class VoteData(BaseModel):
+    message_id: str
+    option_id: str
 
 # Startup and Shutdown
 @app.on_event("startup")
@@ -258,6 +279,57 @@ async def unblock_user(chat_id: str, user_data: UserBlock, current_user: dict = 
     )
     return {"message": "User unblocked"}
 
+# Message Polls
+@app.post("/messages/polls")
+async def send_poll(poll_data: PollCreate, current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id": ObjectId(poll_data.chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    user_id = str(current_user["_id"])
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    if len(poll_data.poll.options) < 2:
+        raise HTTPException(status_code=400, detail="Poll must have at least 2 options")
+    
+    if len(poll_data.poll.options) > 10:
+        raise HTTPException(status_code=400, detail="Poll cannot have more than 10 options")
+    
+    message = {
+        "chat_id": poll_data.chat_id,
+        "user_id": user_id,
+        "username": current_user["username"],
+        "content": poll_data.poll.question,
+        "poll": {
+            "question": poll_data.poll.question,
+            "options": [option.model_dump() for option in poll_data.poll.options],
+            "multiple_choice": poll_data.poll.multiple_choice,
+            "expires_at": poll_data.poll.expires_at.isoformat() if poll_data.poll.expires_at else None
+        },
+        "created_at": datetime.utcnow(),
+    }
+    
+    if poll_data.reply:
+        message["reply"] = poll_data.reply
+    
+    if poll_data.from_branch:
+        message["from_branch"] = poll_data.from_branch
+    
+    result = await db.messages.insert_one(message)
+    message["_id"] = str(result.inserted_id)
+    message["created_at"] = message["created_at"].isoformat()
+    # message["type"] = "poll"
+    message["type"] = "message"
+    
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+    
+    return message
+
 # Message Endpoints
 @app.post("/messages")
 async def send_message(msg_data: MessageCreate, current_user: dict = Depends(get_current_user)):
@@ -294,6 +366,26 @@ async def send_message(msg_data: MessageCreate, current_user: dict = Depends(get
         )
     
     return message
+
+@app.get("/messages/latest/{chat_id}")
+async def latest_message(chat_id: str, response: Response ,current_user: dict = Depends(get_current_user)):
+    chat = await db.chats.find_one({"_id": ObjectId(chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    user_id = str(current_user["_id"])
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    message = await db.messages.find_one({"chat_id":chat_id},sort=[("createdAt", -1)])
+    if message:
+        message["_id"] = str(message["_id"])
+        message["created_at"] = message["created_at"].isoformat()
+        return message
+
+
+    response.status_code = status.HTTP_201_CREATED
+    return "No messages yet"
 
 @app.get("/messages/like/{chat_id}/{message_id}")
 async def send_message(chat_id: str,message_id: str, current_user: dict = Depends(get_current_user)):

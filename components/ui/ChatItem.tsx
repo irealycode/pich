@@ -65,7 +65,8 @@ export default function ChatItem({chat,onRemove}: ChatItem){
                     </View>
                     <View style={styles.chatInfo}>
                         <Text style={{fontSize:20,fontFamily:'Agdasima-Bold',color:'white',marginBottom:4}}>{chat.name}</Text>
-                        <Text style={styles.chatKey}>last message</Text>
+                        {!chat.last_message&&<Text style={styles.chatKey}>new chat</Text>}
+                        {chat.last_message&&<Text numberOfLines={1} style={{fontFamily:'courier',fontSize:14,fontWeight:600,color:'#b4b4b4',}}>{chat.last_sender}<Text style={{color:'#70f33c'}} >{'>'} </Text><Text style={{color:'#ffffff66',fontWeight:400}} >{chat.last_message}</Text></Text>}
                     </View>
                 </Pressable>
             </Animated.View>

@@ -1,8 +1,13 @@
 import { BackIcon } from '@/assets/svgs/Back';
 import { CloseIcon } from '@/assets/svgs/Close';
+import { PlusIcon } from '@/assets/svgs/Plus';
+import { PollsIcon } from '@/assets/svgs/Polls';
 import { ReplyLineIcon } from '@/assets/svgs/ReplyLine';
+import { SendIcon } from '@/assets/svgs/Send';
+import CreatePoll from '@/components/ui/CreatePoll';
 import MessageBubble from '@/components/ui/MessageBubble';
 import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
+import MessagePollBubble, { Poll, PollOption } from '@/components/ui/MessagePollBubble';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
 import { decrypt, encrypt, encryptECB } from '@/imports/crypto';
@@ -10,7 +15,6 @@ import { ip, port } from '@/imports/overall';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
@@ -29,7 +33,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { SvgXml } from 'react-native-svg';
 
 
@@ -69,7 +73,8 @@ export interface Message{
   reply?: Reply | null,
   likes?: string[],
   branch?: string,
-  from_branch?: string
+  from_branch?: string,
+  poll?:Poll
 }
 
 interface TypingUser {
@@ -94,16 +99,22 @@ export default function ChatInterface() {
   const scrollViewRef = useRef<any | undefined>(undefined);
   const [contentHeight, setContentHeight] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
+  const [showMoreOptions,setShowMoreOptions] = useState(false);
+  const [showSendPoll,setShowSendPoll] = useState(false);
   const [userTyping, setUserTyping] = useState<TypingUser[]>([]);
   const usersTyping = useRef<TypingUser[]>([]);
   const typingTimeout = useRef<number | null>(null);
   const isTypingRef = useRef(false);
   const replyPaddingTop = useSharedValue(0)
+  const moreOptionsScale = useSharedValue(0)
   const replyStyle = useAnimatedStyle(()=>({
     paddingTop:replyPaddingTop.value
   }))
   const replyComponentsStyle = useAnimatedStyle(()=>({
     opacity:replyPaddingTop.value/75
+  }))
+  const moreOptionsStyle = useAnimatedStyle(()=>({
+    transform: [{ scale: moreOptionsScale.value }],
   }))
   const [messageBubbleSelected, setMessageBubbleSelected] = useState<Message | null>(null);
   
@@ -155,14 +166,21 @@ export default function ChatInterface() {
 
     const receiveMessage = async(msg : Message) => {
       if(msg.from_branch) return
-      const decryptedMsg = await decrypt(msg.content,key)
+      const decryptedMsg = decrypt(msg.content,key)
       setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
     }
     const parseAndDecryptMessages = async(msgs : Message[]) =>{
       const msgsCopy : Message[] = []
       msgs.forEach(async m => {
-        const content = await decrypt(m.content,key)
-        msgsCopy.push({...m,content})
+        if (m.poll) {
+          const content = decrypt(m.content,key)
+          const poll : Poll = {question:content,options:m.poll.options.map((op)=>({...op,text:decrypt(op.text,key)}))}
+          msgsCopy.push({...m,content,poll})
+          console.log(m.poll)
+        }else{
+          const content = decrypt(m.content,key)
+          msgsCopy.push({...m,content})
+        }
       });
       return msgsCopy
     }
@@ -310,6 +328,16 @@ export default function ChatInterface() {
       setMessageToReply(null)
     },300)
   }
+
+  const moreOptions = () =>{
+    setShowMoreOptions(true)
+    moreOptionsScale.value = 0
+    setTimeout(()=>{
+        moreOptionsScale.value = withSpring(1, { damping:60 })
+    },200)
+  }
+
+  // CHAT BUBBLE ACTIONS
   
   const onReply = (message : Message) =>{
     setMessageBubbleSelected(null)
@@ -364,6 +392,43 @@ export default function ChatInterface() {
     router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
     console.log(message)
   }
+
+  const onSendPoll = async(question: string, options: string[]) => {
+    try {
+        let pollOptions : PollOption[] = [];
+        options.forEach(async(e,index) => {
+          const textEnc = await encrypt(e,key)
+          pollOptions.push({
+              id: `option_${Date.now()}_${index}`,
+              text: textEnc,
+              votes: []
+          })
+        })
+        const questionEnc = await encrypt(question,key);
+        const response = await axios.post(`http://${ip}:${port}/messages/polls`, {
+            chat_id: chat_id,
+            poll: {
+                question: questionEnc,
+                options: pollOptions,
+                multiple_choice: false,
+                expires_at: null
+            }
+        },{
+        headers:{
+          Authorization : `Bearer ${token.current}`
+        }
+      });
+
+        console.log('Poll sent:', response.data);
+    } catch (error) {
+        console.error('Error sending poll:', error);
+    }
+}
+
+  const onClose = () =>{
+    setShowSendPoll(false)
+  }
+  
   
   const chatIcon = jdenticon.toSvg(chat_id.slice(16),30)
   return (
@@ -401,7 +466,7 @@ export default function ChatInterface() {
           ref={scrollViewRef}
           style={{marginTop:30}}
           scrollEnabled={!messageBubbleSelected}
-          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20,minHeight:screen.height - 150}}
+          contentContainerStyle={{paddingTop:20,paddingBottom:toggleChatPosition?35:75,paddingHorizontal:20}}
           showsVerticalScrollIndicator={false}
           
         >
@@ -411,7 +476,7 @@ export default function ChatInterface() {
             </BlurView>
           </View>
 
-          {messageBubbleSelected && <Pressable onPress={()=>setMessageBubbleSelected(null)} style={{position:'absolute',bottom:0,left:0,width:screen.width,height:contentHeight,zIndex:2}} >
+          {(messageBubbleSelected || showMoreOptions || showSendPoll) && <Pressable onPress={()=>{setMessageBubbleSelected(null);setShowMoreOptions(false)}} style={{position:'absolute',top:contentHeight < screen.height - 150? 0:'auto',bottom:contentHeight < screen.height - 150? 'auto':0,left:0,width:screen.width,height:contentHeight < screen.height? screen.height:contentHeight,zIndex:2}} >
             <BlurView intensity={40} tint="dark" style={{width:'100%',height:'100%'}}>
 
             </BlurView>
@@ -424,6 +489,25 @@ export default function ChatInterface() {
               const bySender = msg.user_id === user_id.current
               const isSelected = messageBubbleSelected?messageBubbleSelected._id === msg._id:false
               // const user_colors = stringToColor(msg.user_id)
+              if (msg.poll) {
+                return(
+                  <MessagePollBubble key={msg._id} 
+                  // zIndex={isSelected?3:1}
+                  isSelected={isSelected}
+                  user_id={user_id.current} 
+                  message={msg} 
+                  sameUserBelow={sameUserBelow} 
+                  sameUserOnTop={sameUserOnTop} 
+                  bySender={bySender}
+                  onLongPress={onLongPress} 
+                  onReply={onReply} 
+                  onLike={onLike} 
+                  onUnLike={onUnLike} 
+                  onBranch={onBranch}
+                  onVote={()=>{}}
+                   />
+                )
+              }
               return(
                 <MessageBubble key={msg._id} 
                   // zIndex={isSelected?3:1}
@@ -459,12 +543,28 @@ export default function ChatInterface() {
         </View>} */}
         </ScrollView>
 
+        {showSendPoll && <CreatePoll onClose={onClose} onSendPoll={onSendPoll} chatId={chat_id} />}
+
         <Animated.View style={[msgBarStyleAnim,{position:toggleChatPosition?'fixed':'absolute',bottom:toggleChatPosition?0:-40,width:'100%'}]} >
           {userTyping[0] && <View style={{position:'absolute',top:-27,display:'flex',flexDirection:'row',alignItems:'flex-end'}} >
             <Text style={{fontFamily:'Agdasima',color:'white',left:20,fontSize:18,marginBottom:-1}} >{userTyping[0].username} typing</Text>
             <TypingAnimation dotColor='#fff' dotSize={3} />
           </View>}
+            {/* More Options */}
+
+          {showMoreOptions && <Animated.View style={[{position:'absolute',top:-70,left:15,height:55,width:180,borderRadius:16,borderWidth:1,borderColor:'#afafaf44',backgroundColor:'#2626262b'},moreOptionsStyle]} >
+                  <View style={{display:'flex',alignItems:'flex-start',paddingHorizontal:15,justifyContent:'center',width:'100%',flexDirection:'column',position:'absolute',bottom:10,gap:10}} >
+                      <TouchableOpacity onPress={()=>setShowSendPoll(true)} style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                          <PollsIcon size={34} color="rgb(65, 187, 235)" />
+                          <Text style={{color:'#ffffff',fontSize:20,fontWeight:600,fontFamily:'Agdasima'}} >Create Poll</Text>
+                      </TouchableOpacity>
+                  </View>
+            </Animated.View>}
           <BlurView intensity={40} tint="dark" style={[styles.footer]}>
+
+            
+
+            {/* Message Bar */}
             <Animated.View style={[styles.inputContainer,{position:'relative'},replyStyle]}>
               {messageToReply && <Animated.View style={[{position:'absolute',top:15,left:30,display:'flex',flexDirection:'row',zIndex:90,width:screen.width - 100},replyComponentsStyle]} >
                 <Text style={{position:'absolute',top:-23,left:0,fontFamily:'Agdasima',color:'white',fontSize:16}} >Replied to {messageToReply.user_id === user_id.current? "yourself":messageToReply.username}</Text>
@@ -474,6 +574,17 @@ export default function ChatInterface() {
                   <CloseIcon size={40} color="#41627c" />
                 </TouchableOpacity>
               </Animated.View>}
+
+              <TouchableOpacity onPress={()=>moreOptions()} style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {/* <Text style={styles.sendIcon}>↑</Text> */}
+                <LinearGradient
+                    colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
+                    style={{padding:5,borderRadius:50}}
+                  >
+                        
+                  <PlusIcon size={32} color='#fff' />
+                </LinearGradient>
+              </TouchableOpacity>
               
               <View style={[styles.inputWrapper,{zIndex:99}]}>
                 <TextInput
@@ -507,7 +618,7 @@ export default function ChatInterface() {
                     style={{padding:10,borderRadius:50}}
                   >
                         
-                  <Image source={require('../../../assets/images/send.svg')} style={{height:22,width:22}} />
+                  <SendIcon color='white' size={22} />
                 </LinearGradient>
               </TouchableOpacity>
             </Animated.View>
