@@ -1,4 +1,7 @@
+import { Message } from '@/app/(tabs)/(chat)';
+import { Poll } from '@/components/ui/MessagePollBubble';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { decrypt } from './crypto';
 
 export function sleep(ms : number) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -160,4 +163,30 @@ export function formatRelativeDate(input: Date | string | number): string {
 
   const diffYears = Math.floor(diffDays / 365);
   return `${diffYears} year${diffYears > 1 ? 's' : ''} ago at ${formatTime(date)}`;
+}
+
+
+export const parseAndDecryptMessages = (msgs : Message[],key : string) =>{
+      const msgsCopy : Message[] = []
+      msgs.forEach(async m => {
+        if (m.poll) {
+          const content = decrypt(m.content,key)
+          const poll : Poll = {question:content,options:m.poll.options.map((op)=>({...op,text:decrypt(op.text,key)}))}
+          msgsCopy.push({...m,content,poll})
+        }else{
+          const content = decrypt(m.content,key)
+          msgsCopy.push({...m,content})
+        }
+      });
+      return msgsCopy
+}
+
+export const parseAndDecryptMessage = (msg : Message,key : string) => {
+    if (msg.poll) {
+      const content = decrypt(msg.content,key)
+      const poll : Poll = {question:content,options:msg.poll.options.map((op)=>({...op,text:decrypt(op.text,key)}))}
+      return ({...msg,content:content,poll:poll})
+    }else{
+      return ({...msg,content:decrypt(msg.content,key)})
+    }
 }

@@ -5,13 +5,14 @@ import { PollsIcon } from '@/assets/svgs/Polls';
 import { ReplyLineIcon } from '@/assets/svgs/ReplyLine';
 import { SendIcon } from '@/assets/svgs/Send';
 import CreatePoll from '@/components/ui/CreatePoll';
-import MessageBubble from '@/components/ui/MessageBubble';
 import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
-import MessagePollBubble, { Poll, PollOption } from '@/components/ui/MessagePollBubble';
+import MessageManager from '@/components/ui/MessageManager';
+import { Poll, PollOption } from '@/components/ui/MessagePollBubble';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
-import { decrypt, encrypt, encryptECB } from '@/imports/crypto';
+import { encrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
+import { parseAndDecryptMessage, parseAndDecryptMessages } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
@@ -24,7 +25,6 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -89,7 +89,6 @@ export default function ChatInterface() {
   const user_id = useRef('')
   const navigation = useNavigation();
   const db_ = useRef<SQLite.SQLiteDatabase | null>(null)
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [message, setMessage] = useState('');
   const msgTabY = useSharedValue(100)
   const topTabY = useSharedValue(0)
@@ -156,6 +155,8 @@ export default function ChatInterface() {
             setMessages(prev => prev.map((m)=>m._id === msg.message_id?({...m,likes:m.likes?[...m.likes,msg.user_id]:[msg.user_id]}):m))
           }else if(msg.type === "unlike"){
             setMessages(prev => prev.map((m)=>m._id === msg.message_id?({...m,likes:m.likes?.filter((l)=>l !== msg.user_id)}):m))
+          }else if(msg.type === "poll_update"){
+            setMessages(prev => prev.map((m)=>m._id === msg._id?({...m,poll:msg.poll}):m))
           }
         }
       });
@@ -166,24 +167,9 @@ export default function ChatInterface() {
 
     const receiveMessage = async(msg : Message) => {
       if(msg.from_branch) return
-      const decryptedMsg = decrypt(msg.content,key)
-      setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
+      setMessages(prev=>[...prev,parseAndDecryptMessage(msg,key)])
     }
-    const parseAndDecryptMessages = async(msgs : Message[]) =>{
-      const msgsCopy : Message[] = []
-      msgs.forEach(async m => {
-        if (m.poll) {
-          const content = decrypt(m.content,key)
-          const poll : Poll = {question:content,options:m.poll.options.map((op)=>({...op,text:decrypt(op.text,key)}))}
-          msgsCopy.push({...m,content,poll})
-          console.log(m.poll)
-        }else{
-          const content = decrypt(m.content,key)
-          msgsCopy.push({...m,content})
-        }
-      });
-      return msgsCopy
-    }
+    
     
     const getChat = async() =>{
         try {
@@ -198,7 +184,7 @@ export default function ChatInterface() {
             }
           })
           const data = res.data
-          const parsedMessages = await parseAndDecryptMessages(data.messages)
+          const parsedMessages = parseAndDecryptMessages(data.messages,key)
           setMessages(parsedMessages)
         } catch (error) {
           console.error(error)
@@ -347,51 +333,6 @@ export default function ChatInterface() {
     },300)
   }
 
-  const onLike = async(message : Message) =>{
-    setMessageBubbleSelected(null)
-    if(!message.likes || !message.likes.includes(user_id.current)){
-      await axios.get(`http://${ip}:${port}/messages/like/${chat_id}/${message._id}`,{
-          headers:{
-            Authorization : `Bearer ${token.current}`
-          }
-      })
-      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?[...m.likes,user_id.current]:[user_id.current]}):m))
-    }
-    
-  }
-
-  const onUnLike = async(message : Message) =>{
-    setMessageBubbleSelected(null)
-    if(message.likes?.includes(user_id.current)){
-      await axios.get(`http://${ip}:${port}/messages/unlike/${chat_id}/${message._id}`,{
-        headers:{
-          Authorization : `Bearer ${token.current}`
-        }
-      })
-      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?.filter((l)=>l !== user_id.current)}):m))
-    }
-  }
-
-  const onLongPress = async(message : Message) =>{
-    console.log('long press')
-    setMessageBubbleSelected(message)
-  }
-
-  const onBranch = async(message: Message) =>{
-    if (!message.branch) {
-       const branch = await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
-        headers:{
-          Authorization : `Bearer ${token.current}`
-        }
-      })
-      setMessageBubbleSelected(null)
-      router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:branch.data}})
-      return
-    }
-    setMessageBubbleSelected(null)
-    router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
-    console.log(message)
-  }
 
   const onSendPoll = async(question: string, options: string[]) => {
     try {
@@ -423,11 +364,12 @@ export default function ChatInterface() {
     } catch (error) {
         console.error('Error sending poll:', error);
     }
-}
+  }
 
   const onClose = () =>{
     setShowSendPoll(false)
   }
+
   
   
   const chatIcon = jdenticon.toSvg(chat_id.slice(16),30)
@@ -476,71 +418,23 @@ export default function ChatInterface() {
             </BlurView>
           </View>
 
-          {(messageBubbleSelected || showMoreOptions || showSendPoll) && <Pressable onPress={()=>{setMessageBubbleSelected(null);setShowMoreOptions(false)}} style={{position:'absolute',top:contentHeight < screen.height - 150? 0:'auto',bottom:contentHeight < screen.height - 150? 'auto':0,left:0,width:screen.width,height:contentHeight < screen.height? screen.height:contentHeight,zIndex:2}} >
-            <BlurView intensity={40} tint="dark" style={{width:'100%',height:'100%'}}>
+          <MessageManager 
+            name={name} 
+            description={description} 
+            messages={messages} 
+            chat_id={chat_id} 
+            chat_key={key} 
+            user_id={user_id.current} 
+            token={token.current} 
+            contentHeight={contentHeight}
+            showBlur={showMoreOptions || showSendPoll}
+            setMessages={setMessages}
+            onCloseBlur={()=>{setMessageBubbleSelected(null);setShowMoreOptions(false)}}
+            onReplyMessage={onReply}
+           />
 
-            </BlurView>
-          </Pressable>}
-
-          {
-            messages.map((msg,i)=>{
-              const sameUserBelow = msg.user_id === messages[i + 1]?.user_id
-              const sameUserOnTop = msg.user_id === messages[i - 1]?.user_id
-              const bySender = msg.user_id === user_id.current
-              const isSelected = messageBubbleSelected?messageBubbleSelected._id === msg._id:false
-              // const user_colors = stringToColor(msg.user_id)
-              if (msg.poll) {
-                return(
-                  <MessagePollBubble key={msg._id} 
-                  // zIndex={isSelected?3:1}
-                  isSelected={isSelected}
-                  user_id={user_id.current} 
-                  message={msg} 
-                  sameUserBelow={sameUserBelow} 
-                  sameUserOnTop={sameUserOnTop} 
-                  bySender={bySender}
-                  onLongPress={onLongPress} 
-                  onReply={onReply} 
-                  onLike={onLike} 
-                  onUnLike={onUnLike} 
-                  onBranch={onBranch}
-                  onVote={()=>{}}
-                   />
-                )
-              }
-              return(
-                <MessageBubble key={msg._id} 
-                  // zIndex={isSelected?3:1}
-                  isSelected={isSelected}
-                  user_id={user_id.current} 
-                  message={msg} 
-                  sameUserBelow={sameUserBelow} 
-                  sameUserOnTop={sameUserOnTop} 
-                  bySender={bySender}
-                  onLongPress={onLongPress} 
-                  onReply={onReply} 
-                  onLike={onLike} 
-                  onUnLike={onUnLike} 
-                  onBranch={onBranch}
-                />
-              )
-            })
-          }
-          {/* {userTyping[0] && <View style={{position:'relative',flexDirection: 'row',maxHeight:42}}>
-            <View style={{}}>
-                <LinearGradient
-                colors={['rgba(34, 149, 57, 0.9)', 'rgba(0, 186, 65, 0.88)']}
-                style={{padding: 10,paddingHorizontal:15,borderRadius: 16,borderBottomLeftRadius:5,display:'flex',flexDirection:'row',alignItems:'flex-end',justifyContent:'flex-start'}}
-                >
-                <Text style={{color: 'white',fontSize: 18,fontWeight:'600',fontFamily:'Agdasima',paddingRight:15}}>
-                  {userTyping[0].username} typing 
-                </Text>
-                <View style={{position:'absolute',right:-10,bottom:13}} >
-                  <TypingAnimation dotColor='#fff' dotSize={3} />
-                </View>
-                </LinearGradient>
-            </View>
-        </View>} */}
+          
+          
         </ScrollView>
 
         {showSendPoll && <CreatePoll onClose={onClose} onSendPoll={onSendPoll} chatId={chat_id} />}

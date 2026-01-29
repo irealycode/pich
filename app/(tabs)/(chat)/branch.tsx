@@ -1,12 +1,17 @@
 import { BackIcon } from '@/assets/svgs/Back';
 import { CloseIcon } from '@/assets/svgs/Close';
+import { PlusIcon } from '@/assets/svgs/Plus';
+import { PollsIcon } from '@/assets/svgs/Polls';
 import { ReplyLineIcon } from '@/assets/svgs/ReplyLine';
-import MessageBubble from '@/components/ui/MessageBubble';
+import CreatePoll from '@/components/ui/CreatePoll';
 import MessageBubbleDead from '@/components/ui/MessageBubbleDead';
+import MessageManager from '@/components/ui/MessageManager';
+import { PollOption } from '@/components/ui/MessagePollBubble';
 import TypingAnimation from '@/components/ui/TypingDots';
 import { useSocket } from '@/components/ws/SocketContext';
 import { decrypt, encrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
+import { parseAndDecryptMessage, parseAndDecryptMessages } from '@/imports/usefull';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { BlurView } from 'expo-blur';
@@ -20,7 +25,6 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -29,7 +33,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { SvgXml } from 'react-native-svg';
 import { Message } from '.';
 
@@ -96,7 +100,12 @@ export default function ChatBranchInterface() {
   }))
   const [messageBubbleSelected, setMessageBubbleSelected] = useState<Message | null>(null);
   const [messageBranched, setMessageBranched] = useState<Message | null>(null);
-  
+  const [showMoreOptions,setShowMoreOptions] = useState(false);
+  const [showSendPoll,setShowSendPoll] = useState(false);
+  const moreOptionsScale = useSharedValue(0)
+  const moreOptionsStyle = useAnimatedStyle(()=>({
+      transform: [{ scale: moreOptionsScale.value }],
+    }))
 
     useFocusEffect(
       useCallback(() => {
@@ -145,16 +154,7 @@ export default function ChatBranchInterface() {
 
 
     const receiveMessage = async(msg : Message) => {
-      const decryptedMsg = await decrypt(msg.content,key)
-      setMessages(prev=>[...prev,({...msg,content:decryptedMsg})])
-    }
-    const parseAndDecryptMessages = async(msgs : Message[]) =>{
-      const msgsCopy : Message[] = []
-      msgs.forEach(async m => {
-        const content = await decrypt(m.content,key)
-        msgsCopy.push({...m,content})
-      });
-      return msgsCopy
+      setMessages(prev=>[...prev,parseAndDecryptMessage(msg,key)])
     }
     
     const getBranch = async() =>{
@@ -174,7 +174,7 @@ export default function ChatBranchInterface() {
           let msg = data.branch.message
           msg.content = decrypt(msg.content,key)
           setMessageBranched(msg)
-          const parsedMessages = await parseAndDecryptMessages(data.messages)
+          const parsedMessages = parseAndDecryptMessages(data.messages,key)
           setMessages(parsedMessages)
         } catch (error) {
           console.error(error)
@@ -312,50 +312,50 @@ export default function ChatBranchInterface() {
     },300)
   }
 
-  const onLike = async(message : Message) =>{
-    setMessageBubbleSelected(null)
-    if(!message.likes || !message.likes.includes(user_id.current)){
-      await axios.get(`http://${ip}:${port}/messages/like/${chat_id}/${message._id}`,{
+
+  const onClose = () =>{
+    setShowSendPoll(false)
+  }
+
+  const onSendPoll = async(question: string, options: string[]) => {
+      try {
+          let pollOptions : PollOption[] = [];
+          options.forEach(async(e,index) => {
+            const textEnc = await encrypt(e,key)
+            pollOptions.push({
+                id: `option_${Date.now()}_${index}`,
+                text: textEnc,
+                votes: []
+            })
+          })
+          const questionEnc = await encrypt(question,key);
+          const response = await axios.post(`http://${ip}:${port}/messages/polls`, {
+              chat_id: chat_id,
+              from_branch : branch_id,
+              poll: {
+                  question: questionEnc,
+                  options: pollOptions,
+                  multiple_choice: false,
+                  expires_at: null
+              }
+          },{
           headers:{
             Authorization : `Bearer ${token.current}`
           }
-      })
-      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?[...m.likes,user_id.current]:[user_id.current]}):m))
-    }
-    
-  }
-
-  const onUnLike = async(message : Message) =>{
-    setMessageBubbleSelected(null)
-    if(message.likes?.includes(user_id.current)){
-      await axios.get(`http://${ip}:${port}/messages/unlike/${chat_id}/${message._id}`,{
-        headers:{
-          Authorization : `Bearer ${token.current}`
-        }
-      })
-      setMessages(prev => prev.map((m)=>m._id === message._id?({...m,likes:m.likes?.filter((l)=>l !== user_id.current)}):m))
-    }
-  }
-
-  const onLongPress = async(message : Message) =>{
-    console.log('long press')
-    setMessageBubbleSelected(message)
-  }
+        });
   
-  const onBranch = async(message: Message) =>{
-    if (!message.branch) {
-       const branch = await axios.get(`http://${ip}:${port}/messages/branch/${chat_id}/${message._id}`,{
-        headers:{
-          Authorization : `Bearer ${token.current}`
-        }
-      })
-      setMessageBubbleSelected(null)
-      router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:branch.data}})
-      return
-    }
-    setMessageBubbleSelected(null)
-    router.push({pathname:'/(tabs)/(chat)/branch',params:{chat_id,key,name,description,branch_id:message.branch}})
-    console.log(message)
+          console.log('Poll sent:', response.data);
+      } catch (error) {
+          console.error('Error sending poll:', error);
+      }
+  }
+
+  const moreOptions = () =>{
+      setShowMoreOptions(true)
+      moreOptionsScale.value = 0
+      setTimeout(()=>{
+          moreOptionsScale.value = withSpring(1, { damping:60 })
+      },200)
   }
 
   const chatIcon = jdenticon.toSvg(chat_id.slice(16),30)
@@ -409,37 +409,20 @@ export default function ChatBranchInterface() {
             </BlurView>
           </View>
 
-          {messageBubbleSelected && <Pressable onPress={()=>setMessageBubbleSelected(null)} style={{position:'absolute',bottom:0,left:0,width:screen.width,height:contentHeight,zIndex:2}} >
-            <BlurView intensity={40} tint="dark" style={{width:'100%',height:'100%'}}>
-
-            </BlurView>
-          </Pressable>}
-
-          {
-            messages.map((msg,i)=>{
-              const sameUserBelow = msg.user_id === messages[i + 1]?.user_id
-              const sameUserOnTop = msg.user_id === messages[i - 1]?.user_id
-              const bySender = msg.user_id === user_id.current
-              const isSelected = messageBubbleSelected?messageBubbleSelected._id === msg._id:false
-              // const user_colors = stringToColor(msg.user_id)
-              return(
-                <MessageBubble key={msg._id} 
-                  // zIndex={isSelected?3:1}
-                  isSelected={isSelected}
-                  user_id={user_id.current} 
-                  message={msg} 
-                  sameUserBelow={sameUserBelow} 
-                  sameUserOnTop={sameUserOnTop} 
-                  bySender={bySender}
-                  onLongPress={onLongPress} 
-                  onReply={onReply} 
-                  onLike={onLike} 
-                  onUnLike={onUnLike} 
-                  onBranch={onBranch}
-                />
-              )
-            })
-          }
+          <MessageManager 
+            name={name} 
+            description={description} 
+            messages={messages} 
+            chat_id={chat_id} 
+            chat_key={key} 
+            user_id={user_id.current} 
+            token={token.current} 
+            contentHeight={contentHeight}
+            showBlur={showMoreOptions || showSendPoll}
+            setMessages={setMessages}
+            onCloseBlur={()=>{setMessageBubbleSelected(null);setShowMoreOptions(false)}}
+            onReplyMessage={onReply}
+          />
           {/* {userTyping[0] && <View style={{position:'relative',flexDirection: 'row',maxHeight:42}}>
             <View style={{}}>
                 <LinearGradient
@@ -457,11 +440,23 @@ export default function ChatBranchInterface() {
         </View>} */}
         </ScrollView>
 
+        {showSendPoll && <CreatePoll onClose={onClose} onSendPoll={onSendPoll} chatId={chat_id} />}
+        
+
         <Animated.View style={[msgBarStyleAnim,{position:toggleChatPosition?'fixed':'absolute',bottom:toggleChatPosition?0:-40,width:'100%'}]} >
           {userTyping[0] && <View style={{position:'absolute',top:-27,display:'flex',flexDirection:'row',alignItems:'flex-end'}} >
             <Text style={{fontFamily:'Agdasima',color:'white',left:20,fontSize:18,marginBottom:-1}} >{userTyping[0].username} typing</Text>
             <TypingAnimation dotColor='#fff' dotSize={3} />
           </View>}
+
+          {showMoreOptions && <Animated.View style={[{position:'absolute',top:-70,left:15,height:55,width:180,borderRadius:16,borderWidth:1,borderColor:'#afafaf44',backgroundColor:'#2626262b'},moreOptionsStyle]} >
+                    <View style={{display:'flex',alignItems:'flex-start',paddingHorizontal:15,justifyContent:'center',width:'100%',flexDirection:'column',position:'absolute',bottom:10,gap:10}} >
+                        <TouchableOpacity onPress={()=>setShowSendPoll(true)} style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                            <PollsIcon size={34} color="rgb(65, 187, 235)" />
+                            <Text style={{color:'#ffffff',fontSize:20,fontWeight:600,fontFamily:'Agdasima'}} >Create Poll</Text>
+                        </TouchableOpacity>
+                    </View>
+              </Animated.View>}
           <BlurView intensity={40} tint="dark" style={[styles.footer]}>
             <Animated.View style={[styles.inputContainer,{position:'relative'},replyStyle]}>
               {messageToReply && <Animated.View style={[{position:'absolute',top:15,left:30,display:'flex',flexDirection:'row',zIndex:90,width:screen.width - 100},replyComponentsStyle]} >
@@ -472,6 +467,17 @@ export default function ChatBranchInterface() {
                   <CloseIcon size={40} color="#41627c" />
                 </TouchableOpacity>
               </Animated.View>}
+
+              <TouchableOpacity onPress={()=>moreOptions()} style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {/* <Text style={styles.sendIcon}>↑</Text> */}
+                <LinearGradient
+                    colors={['rgba(107, 181, 237, 0.9)', 'rgba(43, 183, 238, 0.7)']}
+                    style={{padding:5,borderRadius:50}}
+                  >
+                        
+                  <PlusIcon size={32} color='#fff' />
+                </LinearGradient>
+              </TouchableOpacity>
               
               <View style={[styles.inputWrapper,{zIndex:99}]}>
                 <TextInput

@@ -37,7 +37,7 @@ export default function LoginScreen() {
   const login = async() =>{
     Keyboard.dismiss()
     const req = {
-        username,password
+        username:username.trim(),password
     }
     try {
       const res = await axios.post(`http://${ip}:${port}/auth/login`,req)
@@ -46,6 +46,7 @@ export default function LoginScreen() {
       sendToast('success',"Login successful !")
       AsyncStorage.setItem('token',data.access_token)
       AsyncStorage.setItem('user_id',data.user_id)
+      AsyncStorage.setItem('username',username.trim())
       console.log(data)
       router.replace('/(tabs)')
     } catch (error) {

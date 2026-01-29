@@ -83,6 +83,7 @@ export default function RegisterScreen() {
         const data = res.data
         AsyncStorage.setItem('token',data.access_token)
         AsyncStorage.setItem('user_id',data.user_id)
+        AsyncStorage.setItem('username',username.trim())
         console.log(data)
         router.replace('/(tabs)')
         sendToast('success',"Register successful !")

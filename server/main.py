@@ -112,6 +112,7 @@ class PollCreate(BaseModel):
 class VoteData(BaseModel):
     message_id: str
     option_id: str
+    chat_id: str
 
 # Startup and Shutdown
 @app.on_event("startup")
@@ -329,6 +330,90 @@ async def send_poll(poll_data: PollCreate, current_user: dict = Depends(get_curr
         )
     
     return message
+
+@app.post("/messages/polls/vote")
+async def vote_on_poll(vote_data: VoteData, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+
+    chat = await db.chats.find_one({"_id": ObjectId(vote_data.chat_id)})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    user_id = str(current_user["_id"])
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    message = await db.messages.find_one({"_id": ObjectId(vote_data.message_id)})
+    if not message:
+        raise HTTPException(status_code=404, detail="Poll not found")
+    
+    
+    chat = await db.chats.find_one({"_id": ObjectId(message["chat_id"])})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if user_id not in chat['joined_users']:
+        raise HTTPException(status_code=403, detail="You are not a member of this chat")
+    
+    if user_id in chat.get("blocked_users", []):
+        raise HTTPException(status_code=403, detail="You are blocked from this chat")
+    
+    poll = message.get("poll", {})
+    if poll.get("expires_at"):
+        expires_at = datetime.fromisoformat(poll["expires_at"])
+        if datetime.utcnow() > expires_at:
+            raise HTTPException(status_code=400, detail="This poll has expired")
+    
+    option_found = False
+    for option in poll["options"]:
+        if option["id"] == vote_data.option_id:
+            option_found = True
+            break
+    
+    if not option_found:
+        raise HTTPException(status_code=404, detail="Poll option not found")
+    
+    is_multiple_choice = poll.get("multiple_choice", False)
+    
+    if not is_multiple_choice:
+        for option in poll["options"]:
+            if user_id in option.get("votes", []):
+                option["votes"].remove(user_id)
+    
+    selected_option = next(opt for opt in poll["options"] if opt["id"] == vote_data.option_id)
+    
+    if user_id in selected_option.get("votes", []):
+        selected_option["votes"].remove(user_id)
+        action = "removed"
+    else:
+        if "votes" not in selected_option:
+            selected_option["votes"] = []
+        selected_option["votes"].append(user_id)
+        action = "added"
+    
+    message = await db.messages.find_one_and_update(
+        {"_id": ObjectId(vote_data.message_id)},
+        {"$set": {"poll": poll}},
+        return_document=ReturnDocument.AFTER
+    )
+    
+
+    message["_id"] = str(message["_id"])
+    message["created_at"] = message["created_at"].isoformat()
+    message["type"] = "poll_update"
+    
+    for user in chat['joined_users']:
+        await redis_client.publish(
+            f"user:{user}",
+            json.dumps(message)
+        )
+    
+    return {
+        "message": f"Vote {action}",
+        "poll": poll,
+        "option_id": vote_data.option_id,
+        "action": action
+    }
 
 # Message Endpoints
 @app.post("/messages")

@@ -1,5 +1,6 @@
 import { CopyIcon } from '@/assets/svgs/Copy';
 import { PlusIcon } from '@/assets/svgs/Plus';
+import { ProfileIcon } from '@/assets/svgs/Profile';
 import ChatItem from '@/components/ui/ChatItem';
 import { decrypt, encryptECB } from '@/imports/crypto';
 import { ip, port } from '@/imports/overall';
@@ -10,6 +11,8 @@ import { BlurView } from 'expo-blur';
 import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
 import * as SQLite from 'expo-sqlite';
+import jdenticon from "jdenticon/standalone";
+import { LogOut } from 'lucide-react-native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
@@ -25,8 +28,9 @@ import {
   View
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SvgXml } from 'react-native-svg';
 
 interface Task {
   id : number,
@@ -99,10 +103,15 @@ const ChatPich = () => {
     }));
     const [chatIK,setChatIK] = useState('')
     const [showCopy,setShowCopy] = useState(false)
+    const [showedProfile,setShowedProfile] = useState(false)
     const token = useRef('')
     const user_id = useRef('')
+    const username = useRef('')
     const [showConfirmation,setShowConfirmation] = useState<ConfirmationParams | null>(null)
-
+    const showProfileScale = useSharedValue(0)
+    const showProfileStyle = useAnimatedStyle(()=>({
+        transform: [{ scale: showProfileScale.value }],
+      }))
 
     useFocusEffect(
       useCallback(() => {
@@ -121,6 +130,11 @@ const ChatPich = () => {
               if (u) {
                 user_id.current = u
                 getChatsAndLastMessages()
+                AsyncStorage.getItem('username').then((us)=>{
+                  if (us) {
+                    username.current = us
+                  }
+                })
               }
             })
           }
@@ -356,19 +370,46 @@ const ChatPich = () => {
       })
     }
 
-    
-    
+    const showProfile = () =>{
+      setShowedProfile(true)
+      showProfileScale.value = 0
+      setTimeout(()=>{
+          showProfileScale.value = withSpring(1, { damping:60 })
+      },200)
+    }
 
+    const closeAllPrimary = () =>{
+      setShowConfirmation(null)
+      setShowedProfile(false)
+    }
+    
+    
+    const profileSvg = jdenticon.toSvg(user_id.current?.slice(16),200)
     return (
       <SafeAreaView style={styles.container}>
         {/* <StatusBar barStyle="light-content" /> */}
         {showAddTask && !typingOnAdd && <Pressable onPress={()=>closeAddTask()} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',zIndex:2}} >
         </Pressable>}
 
-        {showConfirmation && <Pressable onPress={()=>setShowConfirmation(null)} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',zIndex:3}} >
+        {(showConfirmation || showedProfile) && <Pressable onPress={()=>closeAllPrimary()} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',zIndex:3}} >
           <BlurView intensity={40} style={{height:'100%',width:'100%'}} >
           </BlurView>
         </Pressable>}
+
+        {showedProfile && <Animated.View style={[{position:'absolute',top:100,right:20,height:115,width:200,borderRadius:16,zIndex:4,borderWidth:1,borderColor:'#afafaf44',backgroundColor:'#2626262b'},showProfileStyle]} >
+                <View style={{display:'flex',overflow:'hidden',alignItems:'flex-start',paddingHorizontal:15,justifyContent:'center',width:'100%',flexDirection:'column',position:'absolute',bottom:12,gap:10}} >
+                    <View  style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                        <SvgXml xml={profileSvg} width={30} height={30} />
+                        <Text numberOfLines={1} style={{color:'#ffffff',fontSize:20,width:'80%',fontWeight:600,fontFamily:'Agdasima'}} >{username.current}</Text>
+                    </View>
+                    <View style={{height:2,width:'80%',marginLeft:'10%',backgroundColor:'#9999996e',marginVertical:4,borderRadius:2}} ></View>
+                    <TouchableOpacity onPress={()=>logOut()} style={{display:'flex',alignItems:'center',flexDirection:'row',gap:10}} >
+                        <LogOut width={30} height={30} color={'#ff4b4b'} />
+                        <Text numberOfLines={1} style={{color:'#ffffff',fontSize:20,width:'80%',fontWeight:600,fontFamily:'Agdasima'}} >Log out</Text>
+                    </TouchableOpacity>
+                </View>
+          </Animated.View>}
+        
 
         {showConfirmation &&
         <View style={{position:'absolute',zIndex:4,top:'50%',left:'50%',transform:'translateX(-100%) translateY(-50%)',paddingTop:20,paddingBottom:10,paddingHorizontal:10,width:200,backgroundColor:'rgba(150, 171, 190, 0.21)',borderRadius:16,borderWidth:1,borderColor:"#5a5a5a92",display:'flex',alignItems:'center',justifyContent:'center'}} >
@@ -394,6 +435,10 @@ const ChatPich = () => {
                 <Text style={{fontFamily:'courier',fontSize:30,color:'white',margin:0}}>pich</Text>
               </TouchableOpacity>
             </View>
+
+            <TouchableOpacity onPress={()=>showProfile()} style={{position:'absolute',top:55,right:20}}>
+              <ProfileIcon size={30} color='white' />
+            </TouchableOpacity>
 
             <View style={styles.greetingSection}>
               <View style={{display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'flex-start'}} >
